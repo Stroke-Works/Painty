@@ -15,7 +15,7 @@ use eframe::egui::Context;
 use crate::i18n::{t, tf};
 
 /// Latest release of the repository. The release must contain an asset named `painty.exe`.
-const API_URL: &str = "https://api.github.com/repos/Gtisseran/painty/releases/latest";
+const API_URL: &str = "https://api.github.com/repos/Stroke-Works/painty/releases/latest";
 const ASSET_NAME: &str = "painty.exe";
 /// Name given to the previous executable after replacement.
 const OLD_NAME: &str = "painty.old.exe";
