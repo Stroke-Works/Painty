@@ -59,6 +59,7 @@ jobs:
         with:
           name: Painty ${{ env.RELEASE_VERSION }}
           body_path: RELEASE_NOTES.md
+          overwrite_files: true
           files: |
             dist/painty.exe
             dist/painty.exe.sha256
