@@ -4,7 +4,7 @@
 ; The version is passed by release.ps1 and the release workflow (/DMyAppVersion=...),
 ; read from Cargo.toml. This default is only used when building by hand.
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.2"
+  #define MyAppVersion "0.2.3"
 #endif
 
 [Setup]
