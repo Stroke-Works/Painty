@@ -507,20 +507,23 @@ pub fn segmented_sized<T: Copy + PartialEq>(
 /// Flag image of a language.
 fn flag(lang: Lang) -> egui::ImageSource<'static> {
     match lang {
-        Lang::Fr => egui::include_image!("../assets/flags/fr.svg"),
         Lang::En => egui::include_image!("../assets/flags/en.svg"),
+        Lang::Fr => egui::include_image!("../assets/flags/fr.svg"),
+        Lang::Es => egui::include_image!("../assets/flags/es.svg"),
+        Lang::De => egui::include_image!("../assets/flags/de.svg"),
+        Lang::It => egui::include_image!("../assets/flags/it.svg"),
     }
 }
 
 /// Language dropdown: a button showing the current language, and a menu listing
-/// both. The menu is drawn in the topmost layer, so it appears above the settings
+/// all of them. The menu is drawn in the topmost layer, so it appears above the settings
 /// popup (egui's own popups would stay hidden behind it). Returns the language
 /// picked this frame, if any.
 pub fn language_menu(ui: &mut Ui, c: &Colors, current: Lang) -> Option<Lang> {
     let ctx = ui.ctx().clone();
     let font = FontId::proportional(13.0);
     // Same width for every language, so the button does not change size when it switches.
-    let text_w = [Lang::En, Lang::Fr]
+    let text_w = Lang::ALL
         .iter()
         .map(|l| {
             ui.painter()
@@ -594,7 +597,7 @@ pub fn language_menu(ui: &mut Ui, c: &Colors, current: Lang) -> Option<Lang> {
                     .inner_margin(egui::Margin::same(4.0))
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
-                        for lang in [Lang::En, Lang::Fr] {
+                        for lang in Lang::ALL {
                             if language_option(ui, c, lang, lang == current, rect.width() - 8.0)
                                 .clicked()
                             {
