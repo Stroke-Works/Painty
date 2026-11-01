@@ -132,11 +132,10 @@ pub fn save(
         .checked_mul(bh)
         .and_then(|n| n.checked_mul(3))
         .ok_or(t("error.export_size"))?;
-    let mut buf = vec![0u8; len];
-    for px in buf.chunks_exact_mut(3) {
-        px.copy_from_slice(&[bg.r(), bg.g(), bg.b()]);
-    }
+    let pixel = [bg.r(), bg.g(), bg.b()];
+    let buf: Vec<u8> = pixel.iter().copied().cycle().take(len).collect();
 
+    let mut buf = buf;
     {
         let mut raster = Raster {
             buf: &mut buf,
