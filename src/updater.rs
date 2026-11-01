@@ -55,6 +55,8 @@ fn agent() -> ureq::Agent {
 #[derive(Clone)]
 pub struct Release {
     pub version: String,
+    /// Markdown description published with the GitHub release.
+    pub notes: String,
     /// Download address of `painty.exe`.
     pub url: String,
     /// Download address of the SHA-256 of `painty.exe`.
@@ -237,9 +239,14 @@ fn fetch_latest() -> Result<Option<Release>, String> {
 
     Ok(Some(Release {
         version,
+        notes: release_notes(&json),
         url,
         sha256_url,
     }))
+}
+
+fn release_notes(release: &serde_json::Value) -> String {
+    release["body"].as_str().unwrap_or_default().to_owned()
 }
 
 fn is_allowed_download_url(url: &str) -> bool {
@@ -533,6 +540,16 @@ mod tests {
         );
         assert_eq!(asset_url(&release, "painty.exe.sha256"), None);
         assert_eq!(asset_url(&serde_json::json!({}), "painty.exe"), None);
+    }
+
+    #[test]
+    fn release_markdown_is_preserved_for_the_update_prompt() {
+        let release = serde_json::json!({"body": "# Painty 0.4.0\n\n- New feature 🎨"});
+        assert_eq!(
+            release_notes(&release),
+            "# Painty 0.4.0\n\n- New feature 🎨"
+        );
+        assert!(release_notes(&serde_json::json!({})).is_empty());
     }
 
     #[test]

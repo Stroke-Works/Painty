@@ -95,7 +95,7 @@ The toolbar's project menu opens and saves editable `.painty` files; Ctrl+O and 
 
 The update prompt is driven by the updater status and waits until no other dialog is visible. Each dialog is rendered through `dialog.rs`, which preserves its content while it fades out.
 
-Clicking the version in Settings opens the current `RELEASE_NOTES.md` in an in-app CommonMark viewer.
+Clicking the version in Settings opens the matching `assets/archive/vX.Y.Z.md` in an in-app CommonMark viewer. The update prompt instead shows the notes returned by GitHub for the available release.
 
 ## Export
 
@@ -136,7 +136,8 @@ The checksum protects against a corrupted or truncated download. It does not pro
 | `release.ps1` | Builds the release executable, writes `painty.exe.sha256` and creates the installer, in `dist\` |
 | `clippy.toml` | Clippy settings (argument limit of the widget helpers) |
 | `.gitattributes` | Line endings: LF for source files, CRLF for PowerShell and Inno Setup scripts |
-| `RELEASE_NOTES.md` | Description of the next release, read by the release workflow |
+| `RELEASE_NOTES.md` | Description of the next release, used as the GitHub release body |
+| `assets/archive/vX.Y.Z.md` | Archived release notes for that app version, embedded in the Settings dialog |
 | `AGENT.md` | Guide for AI agents and chat assistants working on the project |
 | `.github/workflows/rust-ci.yml` | On every push: formatting, Clippy and tests, on Windows |
 | `.github/workflows/release.yml` | On a `v*` tag: tests, build, checksum, installer, and publication of the release |

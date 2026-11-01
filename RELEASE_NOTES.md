@@ -7,6 +7,7 @@
 - Line, rectangle and ellipse tools, with an optional fill.
 - An eyedropper and a customizable, persistent color palette.
 - Current release notes are available by clicking the version in Settings.
+- Emoji and code sections in release notes are easier to read, and update prompts show the upcoming release notes.
 
 ### 📦 Installation
 

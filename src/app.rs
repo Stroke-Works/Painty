@@ -16,6 +16,12 @@ use crate::toolbar::{self, Action};
 use crate::updater::{self, Status, Updater};
 use crate::widgets::{self, Kind};
 
+const CURRENT_RELEASE_NOTES: &str = include_str!(concat!(
+    "../assets/archive/v",
+    env!("CARGO_PKG_VERSION"),
+    ".md"
+));
+
 /// Export options chosen in the export popup.
 #[derive(Clone)]
 struct ExportForm {
@@ -88,6 +94,8 @@ pub struct Painty {
     /// True once the window has been centered on the monitor.
     centered: bool,
     release_notes_cache: CommonMarkCache,
+    release_notes_text: String,
+    release_notes_return: Modal,
 }
 
 impl Painty {
@@ -132,6 +140,8 @@ impl Painty {
             update_checked: false,
             centered: false,
             release_notes_cache: CommonMarkCache::default(),
+            release_notes_text: CURRENT_RELEASE_NOTES.to_owned(),
+            release_notes_return: Modal::Settings,
         };
         if let Some(path) = open_path {
             match project::load(&path) {
@@ -463,6 +473,8 @@ impl Painty {
             c,
         );
         if show_release_notes {
+            self.release_notes_text = CURRENT_RELEASE_NOTES.to_owned();
+            self.release_notes_return = Modal::Settings;
             self.modal = Modal::ReleaseNotes;
         }
         // Picking a theme stops following the system, and is saved.
@@ -480,10 +492,14 @@ impl Painty {
         let dismissed = dialog::show(ctx, "release_notes", open, c, 600.0, c.surface, |ui| {
             widgets::title(ui, c, t("settings.release_notes"));
             ui.add_space(12.0);
+            ui.visuals_mut().code_bg_color = c.track;
+            ui.visuals_mut().extreme_bg_color = c.field;
+            ui.visuals_mut().widgets.noninteractive.bg_stroke =
+                egui::Stroke::new(1.0_f32, c.border);
             CommonMarkViewer::new().show(
                 ui,
                 &mut self.release_notes_cache,
-                include_str!("../RELEASE_NOTES.md"),
+                &self.release_notes_text,
             );
             ui.add_space(16.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -499,7 +515,7 @@ impl Painty {
             });
         });
         if close || dismissed {
-            self.modal = Modal::Settings;
+            self.modal = self.release_notes_return;
         }
     }
 
@@ -711,6 +727,7 @@ impl Painty {
         let other_dialog_visible = self.modal != Modal::None
             || [
                 "settings",
+                "release_notes",
                 "confirm_clear",
                 "export_form",
                 "operation_error",
@@ -723,6 +740,7 @@ impl Painty {
 
         let mut install = false;
         let mut later = false;
+        let mut view_release_notes = false;
         let dismissed = dialog::show(ctx, "update", show, c, 380.0, c.surface, |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
             match &status {
@@ -733,6 +751,19 @@ impl Painty {
                         RichText::new(tf("update.ready", &[("version", release.version.as_str())]))
                             .color(c.text_dim),
                     );
+                    ui.add_space(10.0);
+                    if widgets::button(
+                        ui,
+                        "update_whats_new",
+                        c,
+                        t("button.whats_new"),
+                        Kind::Soft,
+                        332.0,
+                    )
+                    .clicked()
+                    {
+                        view_release_notes = true;
+                    }
                     if has_drawing {
                         ui.add_space(8.0);
                         ui.label(
@@ -799,6 +830,17 @@ impl Painty {
             if let Status::Available(release) = self.updater.status.clone() {
                 self.updater.install(ctx, release);
             }
+        }
+        if view_release_notes {
+            if let Status::Available(release) = &self.updater.status {
+                self.release_notes_text = if release.notes.trim().is_empty() {
+                    t("update.no_release_notes").to_owned()
+                } else {
+                    release.notes.clone()
+                };
+            }
+            self.release_notes_return = Modal::None;
+            self.modal = Modal::ReleaseNotes;
         }
         // The prompt cannot be closed while the download is running.
         if later || (dismissed && !matches!(self.updater.status, Status::Downloading(_))) {
@@ -893,9 +935,10 @@ impl eframe::App for Painty {
 mod tests {
     #[test]
     fn bundled_release_notes_are_markdown_for_the_current_version() {
-        let notes = include_str!("../RELEASE_NOTES.md");
+        let notes = super::CURRENT_RELEASE_NOTES;
         let expected_title = format!("# 🎨 Painty {}", env!("CARGO_PKG_VERSION"));
         assert!(notes.starts_with(&expected_title));
         assert!(notes.lines().any(|line| line.starts_with("- ")));
+        assert!(notes.contains("📦"));
     }
 }

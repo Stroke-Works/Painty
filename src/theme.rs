@@ -190,8 +190,7 @@ pub fn semibold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(Arc::from("Inter SemiBold")))
 }
 
-/// Loads Inter (with the system font as fallback) and sets readable text sizes.
-pub fn setup(ctx: &Context) {
+fn font_definitions() -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
 
     fonts.font_data.insert(
@@ -211,9 +210,20 @@ pub fn setup(ctx: &Context) {
         .insert(0, "inter".to_owned());
     fonts.families.insert(
         FontFamily::Name(Arc::from("Inter SemiBold")),
-        vec!["inter_semibold".to_owned(), "inter".to_owned()],
+        vec![
+            "inter_semibold".to_owned(),
+            "inter".to_owned(),
+            "NotoEmoji-Regular".to_owned(),
+            "emoji-icon-font".to_owned(),
+        ],
     );
 
+    fonts
+}
+
+/// Loads Inter with emoji fallbacks and sets readable text sizes.
+pub fn setup(ctx: &Context) {
+    let fonts = font_definitions();
     ctx.set_fonts(fonts);
 
     ctx.style_mut(|s| {
@@ -312,4 +322,20 @@ pub fn system_mode() -> Mode {
 #[cfg(not(windows))]
 pub fn system_mode() -> Mode {
     Mode::Light
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn semibold_font_family_falls_back_to_emoji_fonts() {
+        let fonts = font_definitions();
+        let family = fonts
+            .families
+            .get(&FontFamily::Name(Arc::from("Inter SemiBold")))
+            .unwrap();
+        assert!(family.iter().any(|font| font == "NotoEmoji-Regular"));
+        assert!(family.iter().any(|font| font == "emoji-icon-font"));
+    }
 }

@@ -36,6 +36,7 @@ cargo test
 ## Releasing
 
 1. Set the version in `Cargo.toml` and `painty.iss`, then run `cargo build` to update `Cargo.lock`.
-2. Write `RELEASE_NOTES.md`. The release workflow fails without it.
-3. Commit, push, wait for a green CI, then push the tag `vX.Y.Z`.
-4. The release is titled `Painty X.Y.Z` and contains `painty.exe`, `painty.exe.sha256` and `PaintySetup-X.Y.Z.exe`.
+2. Write `RELEASE_NOTES.md`; this becomes the GitHub release description.
+3. Copy the same notes to `assets/archive/vX.Y.Z.md`, replacing `X.Y.Z` with the new version. Settings embeds this version-specific file.
+4. Commit, push, wait for a green CI, then push the tag `vX.Y.Z`.
+5. The release is titled `Painty X.Y.Z` and contains `painty.exe`, `painty.exe.sha256` and `PaintySetup-X.Y.Z.exe`.

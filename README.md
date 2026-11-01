@@ -103,7 +103,8 @@ Painty downloads only `painty.exe` from the latest GitHub release and replaces i
 
 1. Set the new version in `Cargo.toml`, then run `cargo build` to update `Cargo.lock`.
 2. Write the release notes in `RELEASE_NOTES.md`.
-3. Commit and push, wait for the CI to pass, then push the tag:
+3. Copy those notes to `assets/archive/vX.Y.Z.md`, replacing `X.Y.Z` with the new version. This keeps the notes shown in Settings tied to the installed version.
+4. Commit and push, wait for the CI to pass, then push the tag:
 
 ```powershell
 git tag v0.2.3
