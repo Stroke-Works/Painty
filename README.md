@@ -27,9 +27,9 @@
 - **Export** to PNG or JPEG, with a name and a format (Ctrl+S)
 - **Clear all**, with confirmation
 - **Light and dark theme**, with a light or dark canvas chosen separately
-- **French and English** interface, switchable in Settings
+- **Five languages**: English, French, Spanish, German and Italian, switchable in Settings
 - **Responsive toolbar** whose elements fold in and out smoothly as the window is resized
-- **Automatic updates** from GitHub Releases, with a progress bar
+- **Automatic updates** from GitHub Releases, checked against a SHA-256 before they are applied, with a progress bar
 - **Settings saved** between sessions
 
 ## Install
@@ -38,7 +38,7 @@
 2. Download `PaintySetup-x.y.z.exe` and run it.
 3. Choose where to install. No administrator rights are needed.
 
-Painty checks for updates when it starts. You can also check from **Settings → Updates**.
+Painty checks for updates when it starts (this can be turned off in **Settings**). You can also check by hand from **Settings → Check for updates**.
 
 ## Keyboard shortcuts
 
@@ -50,7 +50,7 @@ Painty checks for updates when it starts. You can also check from **Settings →
 
 ## Languages
 
-The interface is available in English and French. The language is chosen from a drop-down in **Settings → Language** and saved with the other settings. Translations are stored in `assets/lang/` as JSON files, one per language.
+The interface is available in English, French, Spanish, German and Italian. The language is chosen from a drop-down in **Settings → Language** and saved with the other settings. Translations are stored in `assets/lang/` as JSON files, one per language. To add a language, see [ARCHITECTURE.md](ARCHITECTURE.md#adding-a-language).
 
 ## Build from source
 
@@ -67,22 +67,42 @@ Run the app:
 .\run.ps1
 ```
 
-Build the executable and the installer:
+Check the code the way the CI does:
 
 ```powershell
-cargo build --release
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" painty.iss
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test
 ```
 
-The installer is written to `dist\PaintySetup-<version>.exe`.
+Build the executable, its checksum and the installer:
+
+```powershell
+.\release.ps1
+```
+
+Everything is written to `dist\`: `painty.exe`, `painty.exe.sha256` and `PaintySetup-<version>.exe`.
 
 ## Updates
 
-Painty downloads only `painty.exe` from the latest GitHub release and replaces itself. No installer is run, and the new version starts right after the download.
+Painty downloads only `painty.exe` from the latest GitHub release and replaces itself. The download is checked against `painty.exe.sha256`, published with the release, and is refused if it does not match. No installer is run, and the new version starts right after the download.
+
+## Releasing
+
+1. Set the new version in `Cargo.toml`, then run `cargo build` to update `Cargo.lock`.
+2. Write the release notes in `RELEASE_NOTES.md`.
+3. Commit and push, wait for the CI to pass, then push the tag:
+
+```powershell
+git tag v0.2.3
+git push origin v0.2.3
+```
+
+The `Release` workflow builds `painty.exe`, its `.sha256` and the installer, and publishes them as **Painty 0.2.3**. The tag must match the version in `Cargo.toml`.
 
 ## Settings
 
-Settings are stored in `%APPDATA%\Painty\settings.txt`.
+Settings (theme, canvas color, language, update check) are stored in `%APPDATA%\Painty\settings.txt`.
 
 ## Project structure
 
