@@ -566,22 +566,14 @@ pub fn language_menu(ui: &mut Ui, c: &Colors, current: Lang) -> Option<Lang> {
     focus_ring(ui.painter(), rect, Rounding::same(10.0), &resp, c);
     pointer_cursor(ui, &resp);
 
-    let now = ctx.input(|i| i.time);
     let state_id = Id::new("language_menu_open");
-    let (mut open, seen) = ctx
-        .data(|d| d.get_temp::<(bool, f64)>(state_id))
-        .unwrap_or((false, 0.0));
-    // The popup was closed in the meantime: forget the open menu.
-    if now - seen > 0.5 {
-        open = false;
-    }
+    let mut open = ctx.data(|d| d.get_temp::<bool>(state_id)).unwrap_or(false);
     if resp.clicked() {
         open = !open;
     }
     // Escape closes the menu first, not the popup behind it.
-    if open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
-        open = false;
-    }
+    let escape_pressed =
+        open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape));
 
     let mut picked = None;
     if open {
@@ -607,18 +599,29 @@ pub fn language_menu(ui: &mut Ui, c: &Colors, current: Lang) -> Option<Lang> {
                     });
             });
         let menu_rect = area.response.rect;
-        if picked.is_some() {
-            open = false;
-        } else if ctx.input(|i| i.pointer.any_pressed()) {
-            if let Some(p) = ctx.input(|i| i.pointer.interact_pos()) {
-                if !menu_rect.contains(p) && !rect.contains(p) {
-                    open = false;
-                }
-            }
-        }
+        let outside_pressed = ctx.input(|i| {
+            i.pointer.any_pressed()
+                && i.pointer
+                    .interact_pos()
+                    .is_some_and(|p| !menu_rect.contains(p) && !rect.contains(p))
+        });
+        open = keep_language_menu_open(open, escape_pressed, picked.is_some(), outside_pressed);
     }
-    ctx.data_mut(|d| d.insert_temp(state_id, (open, now)));
+    ctx.data_mut(|d| d.insert_temp(state_id, open));
     picked
+}
+
+pub fn reset_language_menu(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(Id::new("language_menu_open"), false));
+}
+
+fn keep_language_menu_open(
+    open: bool,
+    escape_pressed: bool,
+    picked: bool,
+    outside_pressed: bool,
+) -> bool {
+    open && !escape_pressed && !picked && !outside_pressed
 }
 
 /// One row of the language menu.
@@ -691,4 +694,21 @@ pub fn setting_row<R>(
         |ui| control(ui),
     )
     .inner
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn language_menu_stays_open_without_a_dismissal_input() {
+        assert!(keep_language_menu_open(true, false, false, false));
+    }
+
+    #[test]
+    fn language_menu_closes_for_explicit_dismissal_inputs() {
+        assert!(!keep_language_menu_open(true, true, false, false));
+        assert!(!keep_language_menu_open(true, false, true, false));
+        assert!(!keep_language_menu_open(true, false, false, true));
+    }
 }

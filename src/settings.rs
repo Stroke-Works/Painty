@@ -32,6 +32,9 @@ pub fn show(
     updater: &mut Updater,
     c: &Colors,
 ) {
+    if !*open {
+        widgets::reset_language_menu(ctx);
+    }
     let dismissed = dialog::show(ctx, "settings", *open, c, CARD_W, c.surface_alt, |ui| {
         let width = ui.available_width();
         ui.set_min_height(CONTENT_H);
