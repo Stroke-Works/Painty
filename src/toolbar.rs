@@ -85,8 +85,7 @@ pub fn show(ctx: &Context, brush: &mut Brush, c: &Colors) -> Option<Action> {
     let tp = ctx.animate_bool_with_time(Id::new("toolbar_palette"), palette_on, ANIM);
 
     // The slider takes what the other elements leave, so the row always fits.
-    let slider_w =
-        (avail - main_width(g, tl, undo_w, clear_w, 0.0)).clamp(SLIDER_MIN, SLIDER_MAX);
+    let slider_w = (avail - main_width(g, tl, undo_w, clear_w, 0.0)).clamp(SLIDER_MIN, SLIDER_MAX);
     let row_w = main_width(g, tl, undo_w, clear_w, slider_w);
     let palette_w = 6.0 * SWATCH_W + 5.0 * g;
     let total_h = ROW_H + (PALETTE_H + ROW_GAP) * tp;
@@ -121,7 +120,15 @@ pub fn show(ctx: &Context, brush: &mut Brush, c: &Colors) -> Option<Action> {
                                 |ui| {
                                     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                                     main_row(
-                                        ui, brush, c, &mut action, g, tl, slider_w, undo_w, clear_w,
+                                        ui,
+                                        brush,
+                                        c,
+                                        &mut action,
+                                        g,
+                                        tl,
+                                        slider_w,
+                                        undo_w,
+                                        clear_w,
                                     );
                                 },
                             );
@@ -178,7 +185,14 @@ fn main_row(
         }
     });
     cell(ui, "slider", 1.0, slider_w, g, |ui| {
-        widgets::size_slider(ui, c, &mut brush.width, 1.0..=80.0, slider_w, t("toolbar.size"));
+        widgets::size_slider(
+            ui,
+            c,
+            &mut brush.width,
+            1.0..=80.0,
+            slider_w,
+            t("toolbar.size"),
+        );
     });
     cell(ui, "px", 1.0, PX_W, g, |ui| {
         widgets::px_label(ui, c, &format!("{:.0} px", brush.width));
@@ -189,7 +203,10 @@ fn main_row(
             "toolbar_tool",
             c,
             &mut brush.tool,
-            &[(Tool::Brush, t("tool.brush")), (Tool::Eraser, t("tool.eraser"))],
+            &[
+                (Tool::Brush, t("tool.brush")),
+                (Tool::Eraser, t("tool.eraser")),
+            ],
             64.0,
             32.0,
             13.0,
@@ -198,10 +215,26 @@ fn main_row(
     cell(ui, "div1", 1.0, 1.0, g, |ui| widgets::divider(ui, c));
 
     cell(ui, "undo_icon", icons, ICON_W, g, |ui| {
-        icon_action(ui, "toolbar_undo", c, Icon::Undo, t("action.undo"), &mut *action, Action::Undo)
+        icon_action(
+            ui,
+            "toolbar_undo",
+            c,
+            Icon::Undo,
+            t("action.undo"),
+            &mut *action,
+            Action::Undo,
+        )
     });
     cell(ui, "clear_icon", icons, ICON_W, g, |ui| {
-        icon_action(ui, "toolbar_clear", c, Icon::Trash, t("action.clear"), &mut *action, Action::Clear)
+        icon_action(
+            ui,
+            "toolbar_clear",
+            c,
+            Icon::Trash,
+            t("action.clear"),
+            &mut *action,
+            Action::Clear,
+        )
     });
     cell(ui, "undo_text", tl, undo_w, g, |ui| {
         if widgets::toolbar_button(ui, "toolbar_undo", c, t("action.undo")).clicked() {
@@ -216,10 +249,26 @@ fn main_row(
     cell(ui, "div2", tl, 1.0, g, |ui| widgets::divider(ui, c));
 
     cell(ui, "export", 1.0, ICON_W, g, |ui| {
-        icon_action(ui, "toolbar_export", c, Icon::Export, t("action.export"), &mut *action, Action::Export)
+        icon_action(
+            ui,
+            "toolbar_export",
+            c,
+            Icon::Export,
+            t("action.export"),
+            &mut *action,
+            Action::Export,
+        )
     });
     cell(ui, "settings", 1.0, ICON_W, 0.0, |ui| {
-        icon_action(ui, "toolbar_settings", c, Icon::Settings, t("settings.title"), &mut *action, Action::Settings)
+        icon_action(
+            ui,
+            "toolbar_settings",
+            c,
+            Icon::Settings,
+            t("settings.title"),
+            &mut *action,
+            Action::Settings,
+        )
     });
 }
 

@@ -90,11 +90,39 @@ pub fn tf(key: &'static str, args: &[(&str, &str)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
+
+    /// Names between braces in a text, e.g. `{version}`.
+    fn placeholders(text: &str) -> BTreeSet<&str> {
+        text.split('{')
+            .skip(1)
+            .filter_map(|rest| rest.split_once('}').map(|(name, _)| name))
+            .collect()
+    }
 
     #[test]
     fn every_english_key_is_translated() {
         for key in table(Lang::En).keys() {
             assert!(table(Lang::Fr).contains_key(key), "missing in fr: {key}");
+        }
+    }
+
+    #[test]
+    fn no_french_key_is_orphaned() {
+        for key in table(Lang::Fr).keys() {
+            assert!(table(Lang::En).contains_key(key), "missing in en: {key}");
+        }
+    }
+
+    #[test]
+    fn translations_use_the_same_placeholders() {
+        for (key, en) in table(Lang::En) {
+            let fr = &table(Lang::Fr)[key];
+            assert_eq!(
+                placeholders(en),
+                placeholders(fr),
+                "placeholders differ: {key}"
+            );
         }
     }
 }

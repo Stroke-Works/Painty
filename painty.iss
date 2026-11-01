@@ -1,8 +1,11 @@
 ; Inno Setup script for Painty.
 ; Build with: ISCC painty.iss   (or open it in Inno Setup and press F9)
 
-; Keep in sync with the version in Cargo.toml.
-#define MyAppVersion "0.2.1"
+; The version is passed by release.ps1 and the release workflow (/DMyAppVersion=...),
+; read from Cargo.toml. This default is only used when building by hand.
+#ifndef MyAppVersion
+  #define MyAppVersion "0.2.2"
+#endif
 
 [Setup]
 AppName=Painty

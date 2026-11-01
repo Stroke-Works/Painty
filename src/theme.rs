@@ -222,7 +222,10 @@ pub fn setup(ctx: &Context) {
             (TextStyle::Body, FontId::proportional(14.0)),
             (TextStyle::Button, FontId::proportional(14.0)),
             (TextStyle::Small, FontId::proportional(13.0)),
-            (TextStyle::Monospace, FontId::new(14.0, FontFamily::Monospace)),
+            (
+                TextStyle::Monospace,
+                FontId::new(14.0, FontFamily::Monospace),
+            ),
         ]
         .into();
     });
@@ -230,7 +233,11 @@ pub fn setup(ctx: &Context) {
 
 /// Applies the theme to the current `Ui` and its children.
 pub fn apply(ui: &mut Ui, c: &Colors) {
-    let mut v = if c.dark { Visuals::dark() } else { Visuals::light() };
+    let mut v = if c.dark {
+        Visuals::dark()
+    } else {
+        Visuals::light()
+    };
 
     v.window_fill = c.surface_alt;
     v.panel_fill = c.window_bg;

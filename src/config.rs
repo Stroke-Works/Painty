@@ -11,6 +11,8 @@ pub struct Config {
     /// Background of the drawing area, independent from the interface theme.
     pub canvas: CanvasColor,
     pub language: Lang,
+    /// Look for a new version each time the app starts.
+    pub auto_update: bool,
 }
 
 impl Default for Config {
@@ -19,6 +21,7 @@ impl Default for Config {
             theme: None,
             canvas: CanvasColor::Light,
             language: Lang::default(),
+            auto_update: true,
         }
     }
 }
@@ -57,6 +60,8 @@ fn parse(text: &str) -> Config {
                     cfg.language = lang;
                 }
             }
+            // Anything but an explicit "false" keeps the default.
+            ("auto_update", v) => cfg.auto_update = v != "false",
             _ => {}
         }
     }
@@ -100,8 +105,9 @@ pub fn save(cfg: &Config) {
         CanvasColor::Dark => "dark",
     };
     let text = format!(
-        "theme={theme}\ncanvas={canvas}\nlanguage={}\n",
-        cfg.language.code()
+        "theme={theme}\ncanvas={canvas}\nlanguage={}\nauto_update={}\n",
+        cfg.language.code(),
+        cfg.auto_update
     );
     let _ = fs::write(path, text);
 }
@@ -131,6 +137,14 @@ mod tests {
         let cfg = parse("theme=light\ncanvas_follows_theme=false\n");
         assert_eq!(cfg.canvas, CanvasColor::Light);
         assert_eq!(cfg.theme, Some(Mode::Light));
+    }
+
+    #[test]
+    fn auto_update_is_on_unless_turned_off() {
+        assert!(parse("").auto_update);
+        assert!(parse("auto_update=true\n").auto_update);
+        assert!(parse("auto_update=nonsense\n").auto_update);
+        assert!(!parse("auto_update=false\n").auto_update);
     }
 
     #[test]

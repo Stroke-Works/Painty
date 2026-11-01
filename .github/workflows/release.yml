@@ -1,0 +1,64 @@
+name: Release
+
+# Publishes a release when a version tag is pushed (git tag v0.2.2 && git push --tags).
+# The tag must match the version in Cargo.toml.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check the tag matches Cargo.toml
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} does not match Cargo.toml version $version"
+          }
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Checksum for the updater
+        shell: pwsh
+        run: |
+          New-Item dist -ItemType Directory -Force | Out-Null
+          Copy-Item target\release\painty.exe dist\painty.exe
+          $hash = (Get-FileHash dist\painty.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  painty.exe" | Set-Content -Path dist\painty.exe.sha256 -Encoding ascii
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" painty.iss
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/painty.exe
+            dist/painty.exe.sha256
+            dist/PaintySetup-*.exe
+          generate_release_notes: true

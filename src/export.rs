@@ -10,15 +10,20 @@ use eframe::egui::{vec2, Color32, Pos2, Rect, Vec2};
 use image::codecs::jpeg::JpegEncoder;
 use image::{ImageFormat, RgbImage};
 
-use crate::model::Line;
 use crate::i18n::t;
+use crate::model::Line;
 
 /// Margin kept around the drawing in the exported image, in points.
 const MARGIN: f32 = 8.0;
-/// The drawing is rendered at this multiple of the output size, then averaged down.
-const SUPERSAMPLE: u32 = 3;
+/// The drawing is rendered at up to this multiple of the output size, then averaged down.
+const MAX_SUPERSAMPLE: u32 = 3;
 /// JPEG quality, from 1 to 100.
 const JPEG_QUALITY: u8 = 95;
+/// Largest exported image, in pixels. A bigger drawing is exported at a lower scale.
+const MAX_OUTPUT_PIXELS: f64 = 64_000_000.0;
+/// Largest working buffer, in pixels (3 bytes each). Supersampling is lowered to fit,
+/// which keeps the memory used by a big export reasonable.
+const MAX_WORK_PIXELS: f64 = 120_000_000.0;
 
 /// Output file format.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -37,7 +42,7 @@ impl Format {
         }
     }
 
-        /// Name shown in the file dialog filter.
+    /// Name shown in the file dialog filter.
     pub fn label(self) -> &'static str {
         match self {
             Format::Png => t("export.png"),
@@ -60,9 +65,55 @@ pub fn bounds(lines: &[Arc<Line>]) -> Option<Rect> {
     }
 }
 
+/// Size and scale actually used for an export.
+#[derive(Debug, PartialEq)]
+struct Plan {
+    /// Output size, in pixels.
+    w: u32,
+    h: u32,
+    /// Supersampling factor: the drawing is rendered at `s` times the output size.
+    s: u32,
+    /// Pixels per point, reduced from the requested value when the image is too big.
+    ppp: f32,
+}
+
+/// Output size in pixels for a drawing of `size` points at `ppp` pixels per point.
+fn pixel_size(size: Vec2, ppp: f64) -> (u64, u64) {
+    let w = (size.x as f64 * ppp).round().max(1.0) as u64;
+    let h = (size.y as f64 * ppp).round().max(1.0) as u64;
+    (w, h)
+}
+
+/// Chooses the output size and supersampling so that a huge drawing can never
+/// overflow an index or exhaust the memory.
+fn plan(size: Vec2, ppp: f32) -> Plan {
+    let mut ppp = ppp as f64;
+    let (mut w, mut h) = pixel_size(size, ppp);
+    // Shrink until the image fits. One or two rounds are enough: the factor is
+    // exact, the small safety margin only absorbs rounding.
+    while (w as f64) * (h as f64) > MAX_OUTPUT_PIXELS {
+        ppp *= (MAX_OUTPUT_PIXELS / ((w as f64) * (h as f64))).sqrt() * 0.999;
+        (w, h) = pixel_size(size, ppp);
+    }
+
+    let area = (w as f64) * (h as f64);
+    let s = (1..=MAX_SUPERSAMPLE)
+        .rev()
+        .find(|s| area * f64::from(s * s) <= MAX_WORK_PIXELS)
+        .unwrap_or(1);
+
+    Plan {
+        w: w as u32,
+        h: h as u32,
+        s,
+        ppp: ppp as f32,
+    }
+}
+
 /// Writes the drawing to `path` in the given format.
 /// `origin` is the top-left corner of the drawing area and `size` its size, both in points.
-/// `ppp` (pixels per point) keeps the export as sharp as the screen.
+/// `ppp` (pixels per point) keeps the export as sharp as the screen. A very large drawing
+/// is exported at a lower scale instead of failing.
 pub fn save(
     path: &Path,
     format: Format,
@@ -72,13 +123,16 @@ pub fn save(
     bg: Color32,
     ppp: f32,
 ) -> Result<(), String> {
-    let w = (size.x * ppp).round().max(1.0) as u32;
-    let h = (size.y * ppp).round().max(1.0) as u32;
-    let s = SUPERSAMPLE;
+    let Plan { w, h, s, ppp } = plan(size, ppp);
+    let (w, h, s) = (w as usize, h as usize, s as usize);
     let (bw, bh) = (w * s, h * s);
 
     // Start with the background color, at the supersampled resolution.
-    let mut buf = vec![0u8; (bw as usize) * (bh as usize) * 3];
+    let len = bw
+        .checked_mul(bh)
+        .and_then(|n| n.checked_mul(3))
+        .ok_or(t("error.export_size"))?;
+    let mut buf = vec![0u8; len];
     for px in buf.chunks_exact_mut(3) {
         px.copy_from_slice(&[bg.r(), bg.g(), bg.b()]);
     }
@@ -95,7 +149,8 @@ pub fn save(
     }
 
     let pixels = downsample(&buf, bw, bh, s);
-    let image = RgbImage::from_raw(w, h, pixels).ok_or(t("error.export_size"))?;
+    drop(buf);
+    let image = RgbImage::from_raw(w as u32, h as u32, pixels).ok_or(t("error.export_size"))?;
 
     match format {
         Format::Png => image
@@ -113,24 +168,24 @@ pub fn save(
 }
 
 /// Averages each `s` by `s` block of an RGB buffer of size `sw` by `sh`.
-fn downsample(src: &[u8], sw: u32, sh: u32, s: u32) -> Vec<u8> {
+fn downsample(src: &[u8], sw: usize, sh: usize, s: usize) -> Vec<u8> {
     let w = sw / s;
     let h = sh / s;
     let n = s * s;
-    let mut out = vec![0u8; (w * h * 3) as usize];
+    let mut out = vec![0u8; w * h * 3];
 
     for y in 0..h {
         for x in 0..w {
-            let mut acc = [0u32; 3];
+            let mut acc = [0usize; 3];
             for dy in 0..s {
                 for dx in 0..s {
-                    let i = (((y * s + dy) * sw + x * s + dx) * 3) as usize;
-                    acc[0] += src[i] as u32;
-                    acc[1] += src[i + 1] as u32;
-                    acc[2] += src[i + 2] as u32;
+                    let i = ((y * s + dy) * sw + x * s + dx) * 3;
+                    acc[0] += src[i] as usize;
+                    acc[1] += src[i + 1] as usize;
+                    acc[2] += src[i + 2] as usize;
                 }
             }
-            let o = ((y * w + x) * 3) as usize;
+            let o = (y * w + x) * 3;
             for c in 0..3 {
                 out[o + c] = ((acc[c] + n / 2) / n) as u8;
             }
@@ -142,8 +197,8 @@ fn downsample(src: &[u8], sw: u32, sh: u32, s: u32) -> Vec<u8> {
 /// RGB pixel buffer that strokes are painted into.
 struct Raster<'a> {
     buf: &'a mut [u8],
-    w: u32,
-    h: u32,
+    w: usize,
+    h: usize,
 }
 
 impl Raster<'_> {
@@ -177,8 +232,8 @@ impl Raster<'_> {
         let len2 = ab.length_sq();
         let px = [color.r(), color.g(), color.b()];
 
-        for y in (y0 as u32)..=(y1 as u32) {
-            for x in (x0 as u32)..=(x1 as u32) {
+        for y in (y0 as usize)..=(y1 as usize) {
+            for x in (x0 as usize)..=(x1 as usize) {
                 let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
                 let t = if len2 > 0.0 {
                     ((p - a).dot(ab) / len2).clamp(0.0, 1.0)
@@ -186,7 +241,7 @@ impl Raster<'_> {
                     0.0
                 };
                 if (p - (a + ab * t)).length() <= r {
-                    let i = ((y * self.w + x) * 3) as usize;
+                    let i = (y * self.w + x) * 3;
                     self.buf[i..i + 3].copy_from_slice(&px);
                 }
             }
@@ -216,5 +271,60 @@ mod tests {
     #[test]
     fn empty_drawing_has_no_bounds() {
         assert_eq!(bounds(&[]), None);
+    }
+
+    #[test]
+    fn small_drawing_keeps_full_quality() {
+        let plan = plan(vec2(100.0, 50.0), 2.0);
+        assert_eq!(
+            plan,
+            Plan {
+                w: 200,
+                h: 100,
+                s: MAX_SUPERSAMPLE,
+                ppp: 2.0
+            }
+        );
+    }
+
+    #[test]
+    fn huge_drawing_is_scaled_down_instead_of_overflowing() {
+        let plan = plan(vec2(40_000.0, 40_000.0), 1.5);
+        assert!((plan.w as f64) * (plan.h as f64) <= MAX_OUTPUT_PIXELS);
+        assert!(plan.ppp < 1.5);
+        assert_eq!(plan.s, 1);
+        // A buffer index never comes close to overflowing a 32-bit integer.
+        let len = (plan.w as u64 * plan.s as u64) * (plan.h as u64 * plan.s as u64) * 3;
+        assert!(len < 1_000_000_000);
+    }
+
+    #[test]
+    fn supersampling_drops_with_the_image_size() {
+        // 20 megapixels: 3x would need 180 MP, 2x needs 80 MP.
+        let plan = plan(vec2(5_000.0, 4_000.0), 1.0);
+        assert_eq!(plan.s, 2);
+    }
+
+    #[test]
+    fn downsample_averages_each_block() {
+        // One 2x2 block: two black pixels and two white ones.
+        let src = [0, 0, 0, 255, 255, 255, 255, 255, 255, 0, 0, 0];
+        assert_eq!(downsample(&src, 2, 2, 2), vec![128, 128, 128]);
+    }
+
+    #[test]
+    fn raster_paints_a_dot() {
+        let mut buf = vec![255u8; 20 * 20 * 3];
+        let mut raster = Raster {
+            buf: &mut buf,
+            w: 20,
+            h: 20,
+        };
+        let dot = Line::from_points(Color32::BLACK, 6.0, vec![pos2(10.0, 10.0)]);
+        raster.draw(&dot, pos2(0.0, 0.0), 1.0);
+
+        let at = |x: usize, y: usize| buf[(y * 20 + x) * 3];
+        assert_eq!(at(10, 10), 0);
+        assert_eq!(at(0, 0), 255);
     }
 }

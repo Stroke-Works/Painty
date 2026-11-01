@@ -1,4 +1,3 @@
-
 name: Rust CI
 
 on:
@@ -11,7 +10,8 @@ env:
 jobs:
   check-and-test:
     name: Check & Test
-    runs-on: ubuntu-latest
+    # Painty is a Windows application: build and test it where it runs.
+    runs-on: windows-latest
 
     steps:
       - name: Checkout repository
@@ -19,12 +19,17 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Cargo Check
-        run: cargo check --workspace --all-targets
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Cargo Test
         run: cargo test --workspace --all-targets

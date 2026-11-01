@@ -1,0 +1,2 @@
+# The widget helpers take many plain parameters on purpose.
+too-many-arguments-threshold = 8

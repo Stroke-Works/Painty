@@ -54,5 +54,13 @@
   "dialog.quit.title": "Quit Painty?",
   "dialog.quit.body": "Your drawing will be lost. Export it first if you want to keep it.",
   "button.keep_drawing": "Keep drawing",
-  "button.quit": "Quit"
+  "button.quit": "Quit",
+  "settings.auto_update": "Check for updates",
+  "toggle.on": "On",
+  "toggle.off": "Off",
+  "error.no_checksum": "The checksum file (painty.exe.sha256) is missing from the release.",
+  "error.bad_checksum_file": "The checksum file is not valid.",
+  "error.checksum_mismatch": "The download is corrupted: its checksum does not match.",
+  "error.bad_exe": "The downloaded file is not a valid Painty program.",
+  "error.bad_url": "The release contains an unexpected download address."
 }

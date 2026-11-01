@@ -1,6 +1,4 @@
-use eframe::egui::{
-    self, pos2, vec2, Align, Align2, Context, FontId, Layout, Sense,
-};
+use eframe::egui::{self, pos2, vec2, Align, Align2, Context, FontId, Layout, Sense};
 
 use crate::dialog;
 use crate::i18n::{self, t, tf, Lang};
@@ -23,13 +21,14 @@ const SEG_H: f32 = 36.0;
 /// Width reserved for the version and update status in the footer.
 const INFO_W: f32 = 150.0;
 
-/// Settings dialog: theme, canvas colour, language and the update footer.
+/// Settings dialog: theme, canvas colour, language, update check and the update footer.
 pub fn show(
     ctx: &Context,
     open: &mut bool,
     mode: &mut Mode,
     canvas: &mut CanvasColor,
     language: &mut Lang,
+    auto_update: &mut bool,
     updater: &mut Updater,
     c: &Colors,
 ) {
@@ -41,8 +40,7 @@ pub fn show(
         let start_y = ui.cursor().top();
 
         widgets::title(ui, c, t("settings.title"));
-        ui.add_space(8.0);
-        ui.add_space(12.0);
+        ui.add_space(20.0);
 
         widgets::setting_row(ui, c, t("settings.theme"), CONTROL_W, |ui| {
             widgets::segmented_sized(
@@ -50,7 +48,10 @@ pub fn show(
                 "settings_theme",
                 c,
                 mode,
-                &[(Mode::Light, t("theme.light")), (Mode::Dark, t("theme.dark"))],
+                &[
+                    (Mode::Light, t("theme.light")),
+                    (Mode::Dark, t("theme.dark")),
+                ],
                 SEG_W,
                 SEG_H,
                 13.0,
@@ -81,6 +82,20 @@ pub fn show(
                 // Applies from the next frame, so every text switches at once.
                 i18n::set_lang(lang);
             }
+        });
+        ui.add_space(12.0);
+
+        widgets::setting_row(ui, c, t("settings.auto_update"), CONTROL_W, |ui| {
+            widgets::segmented_sized(
+                ui,
+                "settings_auto_update",
+                c,
+                auto_update,
+                &[(true, t("toggle.on")), (false, t("toggle.off"))],
+                SEG_W,
+                SEG_H,
+                13.0,
+            );
         });
 
         // Push the footer to the bottom of the fixed-height card. The cursor is
@@ -120,8 +135,12 @@ pub fn show(
                     pos2(info.left(), info.top() + 19.0),
                     vec2(INFO_W, 16.0),
                 );
-                ui.interact(status_rect, egui::Id::new("settings_status"), Sense::hover())
-                    .on_hover_text(detail);
+                ui.interact(
+                    status_rect,
+                    egui::Id::new("settings_status"),
+                    Sense::hover(),
+                )
+                .on_hover_text(detail);
             }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

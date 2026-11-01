@@ -47,11 +47,18 @@ pub fn set_keyboard_mode(ctx: &egui::Context, keyboard: bool) {
 }
 
 fn focus_visible(ctx: &egui::Context) -> bool {
-    ctx.data(|d| d.get_temp::<bool>(Id::new("keyboard_focus"))).unwrap_or(false)
+    ctx.data(|d| d.get_temp::<bool>(Id::new("keyboard_focus")))
+        .unwrap_or(false)
 }
 
 /// 2 px accent ring drawn inside a control that has keyboard focus.
-fn focus_ring(painter: &Painter, rect: eframe::egui::Rect, rounding: Rounding, resp: &Response, c: &Colors) {
+fn focus_ring(
+    painter: &Painter,
+    rect: eframe::egui::Rect,
+    rounding: Rounding,
+    resp: &Response,
+    c: &Colors,
+) {
     if resp.has_focus() && focus_visible(painter.ctx()) {
         painter.rect_stroke(rect.shrink(1.0), rounding, Stroke::new(2.0_f32, c.accent));
     }
@@ -74,7 +81,11 @@ pub fn title(ui: &mut Ui, c: &Colors, text: &str) {
 pub fn button(ui: &mut Ui, id: &str, c: &Colors, label: &str, kind: Kind, min_w: f32) -> Response {
     let (base, hover, fg) = match kind {
         Kind::Soft => (c.row, c.hover, c.text),
-        Kind::Primary => (c.primary_bg, c.primary_bg.lerp_to_gamma(c.text_dim, 0.18), c.primary_fg),
+        Kind::Primary => (
+            c.primary_bg,
+            c.primary_bg.lerp_to_gamma(c.text_dim, 0.18),
+            c.primary_fg,
+        ),
         Kind::Danger => (c.danger, c.danger_hover, Color32::WHITE),
     };
 
@@ -123,13 +134,7 @@ pub fn button(ui: &mut Ui, id: &str, c: &Colors, label: &str, kind: Kind, min_w:
 
 /// Single-line field on a rounded background, with 12 px side padding and
 /// 10 px vertical padding. A click anywhere in the field focuses the text.
-pub fn text_field(
-    ui: &mut Ui,
-    id: &str,
-    c: &Colors,
-    value: &mut String,
-    hint: &str,
-) -> Response {
+pub fn text_field(ui: &mut Ui, id: &str, c: &Colors, value: &mut String, hint: &str) -> Response {
     let field_id = Id::new(("text_field", id));
     let (rect, bg) = ui.allocate_exact_size(
         vec2(ui.available_width(), 38.0),
@@ -177,18 +182,12 @@ pub fn toolbar_button(ui: &mut Ui, id: &str, c: &Colors, label: &str) -> Respons
         .size()
         .x;
     let (rect, resp) = ui.allocate_exact_size(vec2(text_w + 20.0, 32.0), Sense::click());
-    let t = ui
-        .ctx()
-        .animate_bool_with_time(Id::new(("toolbar_text_hover", id)), resp.hovered(), 0.12);
+    let t =
+        ui.ctx()
+            .animate_bool_with_time(Id::new(("toolbar_text_hover", id)), resp.hovered(), 0.12);
     let painter = ui.painter();
     painter.rect_filled(rect, Rounding::same(8.0), c.hover.gamma_multiply(t));
-    painter.text(
-        rect.center(),
-        Align2::CENTER_CENTER,
-        label,
-        font,
-        c.text,
-    );
+    painter.text(rect.center(), Align2::CENTER_CENTER, label, font, c.text);
     focus_ring(painter, rect, Rounding::same(8.0), &resp, c);
     pointer_cursor(ui, &resp);
     resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), label));
@@ -232,15 +231,15 @@ pub fn color_button(
     color: &mut Color32,
     enabled: bool,
 ) -> Response {
-    let sense = if enabled { Sense::click() } else { Sense::hover() };
+    let sense = if enabled {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
     let (rect, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), sense);
     let opacity = if enabled { 1.0 } else { 0.4 };
     let painter = ui.painter();
-    painter.rect_filled(
-        rect,
-        Rounding::same(6.0),
-        color.gamma_multiply(opacity),
-    );
+    painter.rect_filled(rect, Rounding::same(6.0), color.gamma_multiply(opacity));
     painter.rect_stroke(
         rect,
         Rounding::same(6.0),
@@ -289,7 +288,11 @@ pub fn palette_swatch(
     c: &Colors,
 ) -> Response {
     let (rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-    let sense = if enabled { Sense::click() } else { Sense::hover() };
+    let sense = if enabled {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
     let resp = ui.interact(rect, Id::new(("palette_swatch", index)), sense);
 
     let hov = ui.ctx().animate_bool_with_time(
@@ -373,7 +376,8 @@ pub fn size_slider(
             c.accent,
         );
     }
-    let knob = eframe::egui::Rect::from_center_size(pos2(knob_x, track.center().y), vec2(18.0, 18.0));
+    let knob =
+        eframe::egui::Rect::from_center_size(pos2(knob_x, track.center().y), vec2(18.0, 18.0));
     painter.circle_filled(knob.center(), 9.0, c.knob);
     painter.circle_stroke(knob.center(), 9.0, Stroke::new(1.0_f32, c.knob_border));
     if resp.has_focus() && focus_visible(painter.ctx()) {
@@ -525,7 +529,10 @@ pub fn language_menu(ui: &mut Ui, c: &Colors, current: Lang) -> Option<Lang> {
                 .x
         })
         .fold(0.0_f32, f32::max);
-    let (rect, resp) = ui.allocate_exact_size(vec2(text_w + 18.0 + 8.0 + 12.0 + 14.0 + 12.0, 36.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(
+        vec2(text_w + 18.0 + 8.0 + 12.0 + 14.0 + 12.0, 36.0),
+        Sense::click(),
+    );
 
     let fill = if c.dark { c.active } else { c.track };
     let hover = fill.lerp_to_gamma(c.text, 0.06);
@@ -549,8 +556,10 @@ pub fn language_menu(ui: &mut Ui, c: &Colors, current: Lang) -> Option<Lang> {
     let cx = rect.max.x - 16.0;
     let cy = rect.center().y;
     let stroke = Stroke::new(1.5_f32, c.text_dim);
-    ui.painter().line_segment([pos2(cx - 4.0, cy - 2.0), pos2(cx, cy + 2.0)], stroke);
-    ui.painter().line_segment([pos2(cx, cy + 2.0), pos2(cx + 4.0, cy - 2.0)], stroke);
+    ui.painter()
+        .line_segment([pos2(cx - 4.0, cy - 2.0), pos2(cx, cy + 2.0)], stroke);
+    ui.painter()
+        .line_segment([pos2(cx, cy + 2.0), pos2(cx + 4.0, cy - 2.0)], stroke);
     focus_ring(ui.painter(), rect, Rounding::same(10.0), &resp, c);
     pointer_cursor(ui, &resp);
 
@@ -586,7 +595,9 @@ pub fn language_menu(ui: &mut Ui, c: &Colors, current: Lang) -> Option<Lang> {
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
                         for lang in [Lang::En, Lang::Fr] {
-                            if language_option(ui, c, lang, lang == current, rect.width() - 8.0).clicked() {
+                            if language_option(ui, c, lang, lang == current, rect.width() - 8.0)
+                                .clicked()
+                            {
                                 picked = Some(lang);
                             }
                         }
@@ -610,10 +621,16 @@ pub fn language_menu(ui: &mut Ui, c: &Colors, current: Lang) -> Option<Lang> {
 /// One row of the language menu.
 fn language_option(ui: &mut Ui, c: &Colors, lang: Lang, selected: bool, width: f32) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 36.0), Sense::click());
-    let hov = ui
-        .ctx()
-        .animate_bool_with_time(Id::new(("lang_option", lang.code())), resp.hovered(), 0.12);
-    let fill = if selected { c.hover } else { c.hover.gamma_multiply(hov) };
+    let hov = ui.ctx().animate_bool_with_time(
+        Id::new(("lang_option", lang.code())),
+        resp.hovered(),
+        0.12,
+    );
+    let fill = if selected {
+        c.hover
+    } else {
+        c.hover.gamma_multiply(hov)
+    };
     ui.painter().rect_filled(rect, Rounding::same(8.0), fill);
 
     let flag_rect = egui::Rect::from_min_size(
@@ -643,8 +660,7 @@ pub fn setting_row<R>(
 ) -> R {
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(width, 64.0), Sense::hover());
-    ui.painter()
-        .rect_filled(rect, Rounding::same(12.0), c.row);
+    ui.painter().rect_filled(rect, Rounding::same(12.0), c.row);
 
     let inner = rect.shrink2(vec2(16.0, 14.0));
     let mut row = ui.new_child(
@@ -656,18 +672,13 @@ pub fn setting_row<R>(
 
     let gap = 4.0;
     let label_w = (inner.width() - control_w - gap).max(1.0);
-    let label_rect = egui::Rect::from_min_size(
-        row.cursor().min,
-        vec2(label_w, inner.height()),
-    );
+    let label_rect = egui::Rect::from_min_size(row.cursor().min, vec2(label_w, inner.height()));
     let mut label_ui = row.new_child(
         UiBuilder::new()
             .max_rect(label_rect)
             .layout(Layout::left_to_right(Align::Center)),
     );
-    label_ui.add(
-        egui::Label::new(egui::RichText::new(label).size(15.0).color(c.text)).truncate(),
-    );
+    label_ui.add(egui::Label::new(egui::RichText::new(label).size(15.0).color(c.text)).truncate());
     row.advance_cursor_after_rect(label_rect);
     row.add_space(gap);
 

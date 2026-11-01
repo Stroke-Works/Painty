@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use eframe::egui::{Color32, Painter, Pos2, Rect, Response, Sense, Stroke, Ui};
@@ -12,6 +13,9 @@ const HISTORY_LIMIT: usize = 100;
 const SMOOTHING: f32 = 0.85;
 /// Eraser step, as a fraction of the eraser radius. Smaller = no gaps, slower.
 const ERASE_STEP: f32 = 0.25;
+/// A bend gets a round disc only when the flat joint would leave a notch deeper
+/// than this, in points. Below it the difference cannot be seen.
+const JOINT_DEPTH: f32 = 0.15;
 
 /// Strokes are shared with `Arc`, so a history snapshot only copies pointers.
 type Lines = Vec<Arc<Line>>;
@@ -21,7 +25,7 @@ type Lines = Vec<Arc<Line>>;
 pub struct Canvas {
     lines: Lines,
     current: Option<Line>,
-    undo: Vec<Lines>,
+    undo: VecDeque<Lines>,
     redo: Vec<Lines>,
     /// Smoothed pointer position used while drawing or erasing.
     smooth_pos: Option<Pos2>,
@@ -37,7 +41,7 @@ pub struct Canvas {
 impl Canvas {
     /// Goes back one step.
     pub fn undo(&mut self) {
-        if let Some(previous) = self.undo.pop() {
+        if let Some(previous) = self.undo.pop_back() {
             let current = std::mem::replace(&mut self.lines, previous);
             self.redo.push(current);
             self.eraser_changed = false;
@@ -48,7 +52,7 @@ impl Canvas {
     pub fn redo(&mut self) {
         if let Some(next) = self.redo.pop() {
             let current = std::mem::replace(&mut self.lines, next);
-            self.undo.push(current);
+            self.undo.push_back(current);
             self.eraser_changed = false;
         }
     }
@@ -128,9 +132,9 @@ impl Canvas {
 
     /// Saves the current state so it can be restored with undo.
     fn checkpoint(&mut self) {
-        self.undo.push(self.lines.clone());
+        self.undo.push_back(self.lines.clone());
         if self.undo.len() > HISTORY_LIMIT {
-            self.undo.remove(0);
+            self.undo.pop_front();
         }
         self.redo.clear();
     }
@@ -227,60 +231,145 @@ impl Canvas {
         }
     }
 
-    /// Erases every point within `radius` of `p`. Strokes are split where the eraser passes.
+    /// Erases everything within `radius` of `p`. Strokes are cut exactly where the
+    /// eraser crosses them, even between two distant points of a fast stroke.
     fn erase_at(&mut self, p: Pos2, radius: f32) {
-        let mut next: Lines = Vec::with_capacity(self.lines.len());
-        let mut changed = false;
+        // Cheap test first: most calls touch nothing, and then nothing is allocated.
+        let Some(first) = self.lines.iter().position(|l| touches(l, p, radius)) else {
+            return;
+        };
 
-        for line in self.lines.iter() {
-            let reach = radius + line.width * 0.5;
-            if !line.bounds.expand(reach).contains(p) {
-                next.push(line.clone());
-                continue;
-            }
-
-            let keep: Vec<bool> = line
-                .points
-                .iter()
-                .map(|q| q.distance(p) > reach)
-                .collect();
-            if keep.iter().all(|&k| k) {
-                next.push(line.clone());
-                continue;
-            }
-
-            changed = true;
-            // Split the stroke into runs of points that were not erased.
-            let mut run: Vec<Pos2> = Vec::new();
-            for (q, &kept) in line.points.iter().zip(&keep) {
-                if kept {
-                    run.push(*q);
-                } else if !run.is_empty() {
-                    next.push(Arc::new(Line::from_points(
-                        line.color,
-                        line.width,
-                        std::mem::take(&mut run),
-                    )));
-                }
-            }
-            if !run.is_empty() {
-                next.push(Arc::new(Line::from_points(line.color, line.width, run)));
-            }
+        // Save the state before the first actual change of this gesture, so a
+        // click or drag in empty space adds no undo step and keeps redo.
+        if !self.eraser_changed {
+            self.checkpoint();
+            self.eraser_changed = true;
         }
 
-        if changed {
-            // Save the state before the first actual change of this gesture, so a
-            // click or drag in empty space adds no undo step and keeps redo.
-            if !self.eraser_changed {
-                self.checkpoint();
-                self.eraser_changed = true;
+        let mut next: Lines = Vec::with_capacity(self.lines.len() + 2);
+        next.extend(self.lines[..first].iter().cloned());
+        for line in &self.lines[first..] {
+            if touches(line, p, radius) {
+                let reach = radius + line.width * 0.5;
+                next.extend(split_around(line, p, reach).into_iter().map(Arc::new));
+            } else {
+                next.push(line.clone());
             }
-            self.lines = next;
         }
+        self.lines = next;
     }
 }
 
-/// Draws one stroke as round-jointed segments, so bends never show flat or square corners.
+/// True when the eraser disc of the given `radius` at `p` overlaps `line`.
+fn touches(line: &Line, p: Pos2, radius: f32) -> bool {
+    let reach = radius + line.width * 0.5;
+    if !line.bounds.expand(reach).contains(p) {
+        return false;
+    }
+    match line.points.as_slice() {
+        [] => false,
+        [only] => only.distance(p) <= reach,
+        pts => pts
+            .windows(2)
+            .any(|w| disc_interval(w[0], w[1], p, reach).is_some()),
+    }
+}
+
+/// Cuts `line` where it crosses the disc of radius `reach` centred on `p`.
+/// Returns the pieces that remain, in order (possibly none).
+fn split_around(line: &Line, p: Pos2, reach: f32) -> Vec<Line> {
+    let mut runs: Vec<Vec<Pos2>> = Vec::new();
+
+    match line.points.as_slice() {
+        [] => {}
+        [only] => {
+            if only.distance(p) > reach {
+                runs.push(vec![*only]);
+            }
+        }
+        pts => {
+            let mut run: Vec<Pos2> = Vec::new();
+            for w in pts.windows(2) {
+                let (a, b) = (w[0], w[1]);
+                match disc_interval(a, b, p, reach) {
+                    // Segment untouched: it joins the current run.
+                    None => {
+                        if run.is_empty() {
+                            run.push(a);
+                        }
+                        run.push(b);
+                    }
+                    // Segment crosses the disc between t0 and t1: keep what is outside.
+                    Some((t0, t1)) => {
+                        if t0 > 0.0 {
+                            if run.is_empty() {
+                                run.push(a);
+                            }
+                            run.push(a.lerp(b, t0));
+                        }
+                        if !run.is_empty() {
+                            runs.push(std::mem::take(&mut run));
+                        }
+                        if t1 < 1.0 {
+                            run.push(a.lerp(b, t1));
+                            run.push(b);
+                        }
+                    }
+                }
+            }
+            if !run.is_empty() {
+                runs.push(run);
+            }
+        }
+    }
+
+    runs.into_iter()
+        .map(|pts| Line::from_points(line.color, line.width, pts))
+        .collect()
+}
+
+/// Part of the segment `a`-`b` inside the disc of radius `r` centred on `center`,
+/// as parameters from 0.0 (at `a`) to 1.0 (at `b`). `None` if it never enters it.
+fn disc_interval(a: Pos2, b: Pos2, center: Pos2, r: f32) -> Option<(f32, f32)> {
+    let d = b - a;
+    let f = a - center;
+    let qa = d.dot(d);
+    let qc = f.dot(f) - r * r;
+
+    // Degenerate segment: a single point.
+    if qa <= f32::EPSILON {
+        return (qc <= 0.0).then_some((0.0, 1.0));
+    }
+
+    let qb = 2.0 * f.dot(d);
+    let disc = qb * qb - 4.0 * qa * qc;
+    if disc < 0.0 {
+        return None;
+    }
+    let root = disc.sqrt();
+    let t0 = (-qb - root) / (2.0 * qa);
+    let t1 = (-qb + root) / (2.0 * qa);
+    if t1 < 0.0 || t0 > 1.0 {
+        return None;
+    }
+    Some((t0.max(0.0), t1.min(1.0)))
+}
+
+/// True when the bend at `p` is sharp enough for a flat joint to show a notch.
+/// The notch depth is `radius * (1 - cos(angle / 2))`, `angle` being the turn.
+fn needs_round_joint(prev: Pos2, p: Pos2, next: Pos2, radius: f32) -> bool {
+    let a = p - prev;
+    let b = next - p;
+    let (la, lb) = (a.length(), b.length());
+    if la <= f32::EPSILON || lb <= f32::EPSILON {
+        return false;
+    }
+    let cos = (a.dot(b) / (la * lb)).clamp(-1.0, 1.0);
+    radius * (1.0 - ((1.0 + cos) * 0.5).sqrt()) > JOINT_DEPTH
+}
+
+/// Draws one stroke: flat segments, round caps at both ends, and a disc only at
+/// the bends where a flat joint would be visible.
 fn draw_line(painter: &Painter, line: &Line) {
     let color = line.color;
     let radius = line.width / 2.0;
@@ -291,14 +380,17 @@ fn draw_line(painter: &Painter, line: &Line) {
         1 => {
             painter.circle_filled(pts[0], radius, color);
         }
-        _ => {
+        n => {
             let stroke = Stroke::new(line.width, color);
             for pair in pts.windows(2) {
                 painter.line_segment([pair[0], pair[1]], stroke);
             }
-            // A disc at every point rounds each joint, whatever the angle.
-            for p in pts {
-                painter.circle_filled(*p, radius, color);
+            painter.circle_filled(pts[0], radius, color);
+            painter.circle_filled(pts[n - 1], radius, color);
+            for w in pts.windows(3) {
+                if needs_round_joint(w[0], w[1], w[2], radius) {
+                    painter.circle_filled(w[1], radius, color);
+                }
             }
         }
     }
@@ -314,6 +406,10 @@ mod tests {
         line.push(at);
         line.finish();
         line
+    }
+
+    fn segment(a: Pos2, b: Pos2) -> Line {
+        Line::from_points(Color32::BLACK, 4.0, vec![a, b])
     }
 
     #[test]
@@ -345,8 +441,10 @@ mod tests {
     #[test]
     fn smoothing_is_frame_rate_independent() {
         fn advance(frames: u32, dt: f32) -> f32 {
-            let mut canvas = Canvas::default();
-            canvas.smooth_pos = Some(pos2(0.0, 0.0));
+            let mut canvas = Canvas {
+                smooth_pos: Some(pos2(0.0, 0.0)),
+                ..Canvas::default()
+            };
             for _ in 0..frames {
                 canvas.smooth(pos2(100.0, 0.0), dt);
             }
@@ -357,5 +455,78 @@ mod tests {
         let slow = advance(3, 1.0 / 30.0);
         let fast = advance(12, 1.0 / 120.0);
         assert!((slow - fast).abs() < 0.01, "{slow} vs {fast}");
+    }
+
+    #[test]
+    fn eraser_cuts_a_stroke_between_two_distant_points() {
+        let mut canvas = Canvas::default();
+        // Only two points, 100 px apart: no point is near the eraser.
+        canvas.commit(segment(pos2(0.0, 0.0), pos2(100.0, 0.0)));
+
+        canvas.erase_at(pos2(50.0, 0.0), 5.0);
+
+        // Reach is 5 + 2 = 7, so the stroke is cut between x = 43 and x = 57.
+        assert_eq!(canvas.lines().len(), 2);
+        let left_end = canvas.lines()[0].points.last().unwrap().x;
+        let right_start = canvas.lines()[1].points[0].x;
+        assert!((left_end - 43.0).abs() < 0.01, "{left_end}");
+        assert!((right_start - 57.0).abs() < 0.01, "{right_start}");
+    }
+
+    #[test]
+    fn eraser_near_but_outside_leaves_the_stroke_alone() {
+        let mut canvas = Canvas::default();
+        canvas.commit(segment(pos2(0.0, 0.0), pos2(100.0, 0.0)));
+
+        canvas.erase_at(pos2(50.0, 30.0), 5.0);
+
+        assert_eq!(canvas.lines().len(), 1);
+        assert_eq!(canvas.undo.len(), 1);
+    }
+
+    #[test]
+    fn eraser_removes_the_end_of_a_stroke() {
+        let mut canvas = Canvas::default();
+        canvas.commit(segment(pos2(0.0, 0.0), pos2(100.0, 0.0)));
+
+        canvas.erase_at(pos2(100.0, 0.0), 5.0);
+
+        assert_eq!(canvas.lines().len(), 1);
+        let end = canvas.lines()[0].points.last().unwrap().x;
+        assert!((end - 93.0).abs() < 0.01, "{end}");
+    }
+
+    #[test]
+    fn history_is_limited() {
+        let mut canvas = Canvas::default();
+        for i in 0..(HISTORY_LIMIT + 20) {
+            canvas.commit(dot(pos2(i as f32 * 10.0, 0.0)));
+        }
+        assert_eq!(canvas.undo.len(), HISTORY_LIMIT);
+    }
+
+    #[test]
+    fn only_sharp_bends_get_a_round_joint() {
+        let radius = 3.0;
+        // Straight line and a tiny bend: no disc needed.
+        assert!(!needs_round_joint(
+            pos2(0.0, 0.0),
+            pos2(10.0, 0.0),
+            pos2(20.0, 0.0),
+            radius
+        ));
+        assert!(!needs_round_joint(
+            pos2(0.0, 0.0),
+            pos2(10.0, 0.0),
+            pos2(20.0, 1.0),
+            radius
+        ));
+        // Right angle: a flat joint would show a notch.
+        assert!(needs_round_joint(
+            pos2(0.0, 0.0),
+            pos2(10.0, 0.0),
+            pos2(10.0, 10.0),
+            radius
+        ));
     }
 }

@@ -54,5 +54,13 @@
   "dialog.quit.title": "Quitter Painty ?",
   "dialog.quit.body": "Votre dessin sera perdu. Exportez-le d'abord si vous voulez le garder.",
   "button.keep_drawing": "Garder le dessin",
-  "button.quit": "Quitter"
+  "button.quit": "Quitter",
+  "settings.auto_update": "Vérifier les mises à jour",
+  "toggle.on": "Oui",
+  "toggle.off": "Non",
+  "error.no_checksum": "Le fichier de somme de contrôle (painty.exe.sha256) est absent de la release.",
+  "error.bad_checksum_file": "Le fichier de somme de contrôle n'est pas valide.",
+  "error.checksum_mismatch": "Le téléchargement est corrompu : sa somme de contrôle ne correspond pas.",
+  "error.bad_exe": "Le fichier téléchargé n'est pas un programme Painty valide.",
+  "error.bad_url": "La release contient une adresse de téléchargement inattendue."
 }
