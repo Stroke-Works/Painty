@@ -21,6 +21,11 @@ const CURRENT_RELEASE_NOTES: &str = include_str!(concat!(
     env!("CARGO_PKG_VERSION"),
     ".md"
 ));
+pub(crate) const DEFAULT_WINDOW_SIZE: [f32; 2] = [1200.0, 800.0];
+
+fn startup_window_size(monitor: egui::Vec2) -> egui::Vec2 {
+    egui::vec2(DEFAULT_WINDOW_SIZE[0], DEFAULT_WINDOW_SIZE[1]).min(monitor * 0.85)
+}
 
 /// Export options chosen in the export popup.
 #[derive(Clone)]
@@ -291,14 +296,14 @@ impl Painty {
 
     // ---- Per-frame steps, called in order by `update` ----
 
-    /// Centers the window once, at a reasonable size (at most 900x600, 70 % of the screen).
+    /// Centers the window once, at up to 1200x800 and 85 % of the monitor.
     fn center_window(&mut self, ctx: &egui::Context) {
         if self.centered {
             return;
         }
         let monitor = ctx.input(|i| i.viewport().monitor_size);
         if let Some(monitor) = monitor {
-            let size = egui::vec2(900.0, 600.0).min(monitor * 0.7);
+            let size = startup_window_size(monitor);
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
             ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(
                 ((monitor - size) * 0.5).to_pos2(),
@@ -489,18 +494,29 @@ impl Painty {
     fn show_release_notes(&mut self, ctx: &egui::Context, c: &Colors) {
         let open = self.modal == Modal::ReleaseNotes;
         let mut close = false;
-        let dismissed = dialog::show(ctx, "release_notes", open, c, 600.0, c.surface, |ui| {
+        let dismissed = dialog::show(ctx, "release_notes", open, c, 760.0, c.surface, |ui| {
             widgets::title(ui, c, t("settings.release_notes"));
-            ui.add_space(12.0);
-            ui.visuals_mut().code_bg_color = c.track;
-            ui.visuals_mut().extreme_bg_color = c.field;
-            ui.visuals_mut().widgets.noninteractive.bg_stroke =
-                egui::Stroke::new(1.0_f32, c.border);
-            CommonMarkViewer::new().show(
-                ui,
-                &mut self.release_notes_cache,
-                &self.release_notes_text,
-            );
+            ui.add_space(14.0);
+            Frame::none()
+                .fill(c.field)
+                .stroke(egui::Stroke::new(1.0_f32, c.border))
+                .rounding(egui::Rounding::same(12.0))
+                .inner_margin(egui::Margin::same(16.0))
+                .show(ui, |ui| {
+                    ui.visuals_mut().code_bg_color = c.track;
+                    ui.visuals_mut().extreme_bg_color = c.field;
+                    ui.visuals_mut().widgets.noninteractive.bg_stroke =
+                        egui::Stroke::new(1.0_f32, c.border);
+                    ui.spacing_mut().item_spacing.y = 10.0;
+                    ui.style_mut()
+                        .text_styles
+                        .insert(egui::TextStyle::Heading, egui::FontId::proportional(21.0));
+                    CommonMarkViewer::new().show(
+                        ui,
+                        &mut self.release_notes_cache,
+                        &self.release_notes_text,
+                    );
+                });
             ui.add_space(16.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 close = widgets::button(
@@ -934,11 +950,23 @@ impl eframe::App for Painty {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn startup_window_uses_larger_size_and_fits_smaller_monitors() {
+        assert_eq!(
+            super::startup_window_size(eframe::egui::vec2(1920.0, 1080.0)),
+            eframe::egui::vec2(1200.0, 800.0)
+        );
+        assert_eq!(
+            super::startup_window_size(eframe::egui::vec2(1000.0, 700.0)),
+            eframe::egui::vec2(850.0, 595.0)
+        );
+    }
+
+    #[test]
     fn bundled_release_notes_are_markdown_for_the_current_version() {
         let notes = super::CURRENT_RELEASE_NOTES;
         let expected_title = format!("# 🎨 Painty {}", env!("CARGO_PKG_VERSION"));
         assert!(notes.starts_with(&expected_title));
         assert!(notes.lines().any(|line| line.starts_with("- ")));
-        assert!(notes.contains("📦"));
+        assert!(notes.contains("Editable `.painty` project files."));
     }
 }

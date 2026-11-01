@@ -18,6 +18,8 @@ main.rs ──► app.rs ──┬─► canvas.rs ──► model.rs
 theme.rs is used by every UI file.
 ```
 
+The main window starts at 1200 × 800 px when the monitor allows it, is capped at 85 % of the monitor, and is centered on startup.
+
 ## Folders
 
 | Path | Content |
@@ -95,7 +97,7 @@ The toolbar's project menu opens and saves editable `.painty` files; Ctrl+O and 
 
 The update prompt is driven by the updater status and waits until no other dialog is visible. Each dialog is rendered through `dialog.rs`, which preserves its content while it fades out.
 
-Clicking the version in Settings opens the matching `assets/archive/vX.Y.Z.md` in an in-app CommonMark viewer. The update prompt instead shows the notes returned by GitHub for the available release.
+Clicking the version in Settings opens the matching `assets/archive/vX.Y.Z.md` in a styled, scrollable CommonMark viewer. The update prompt instead shows the notes returned by GitHub for the available release.
 
 ## Export
 
