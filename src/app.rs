@@ -1,4 +1,6 @@
 use eframe::egui::{self, Color32, Frame, Key, RichText};
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::canvas::Canvas;
@@ -7,6 +9,7 @@ use crate::dialog;
 use crate::export::{self, Format};
 use crate::i18n::{self, t, tf, Lang};
 use crate::model::Brush;
+use crate::project::{self, Document};
 use crate::settings;
 use crate::theme::{self, CanvasColor, Colors, Mode};
 use crate::toolbar::{self, Action};
@@ -36,6 +39,8 @@ enum Modal {
     Settings,
     ClearConfirm,
     Export,
+    OpenConfirm,
+    ReleaseNotes,
     Error,
     Quit,
 }
@@ -52,6 +57,9 @@ fn opening_frame(ctx: &egui::Context, id: &str, open: bool) -> bool {
 pub struct Painty {
     canvas: Canvas,
     brush: Brush,
+    palette: [Color32; 6],
+    project_path: Option<PathBuf>,
+    pending_project: Option<(PathBuf, Document)>,
     mode: Mode,
     /// Background of the drawing area, independent from the interface theme.
     canvas_color: CanvasColor,
@@ -79,11 +87,12 @@ pub struct Painty {
     update_checked: bool,
     /// True once the window has been centered on the monitor.
     centered: bool,
+    release_notes_cache: CommonMarkCache,
 }
 
 impl Painty {
     /// Loads the saved settings and builds the initial state.
-    pub fn new() -> Self {
+    pub fn new(open_path: Option<PathBuf>) -> Self {
         // Remove files left over from the previous update.
         updater::cleanup();
 
@@ -91,15 +100,22 @@ impl Painty {
         i18n::set_lang(cfg.language);
         let mode = cfg.theme.unwrap_or_else(theme::system_mode);
         let ink = mode.colors(cfg.canvas).ink;
+        let mut palette = cfg.palette;
+        if palette == theme::palette(theme::INK_LIGHT) {
+            palette[0] = ink;
+        }
 
         let brush = Brush {
             color: ink,
             ..Brush::default()
         };
 
-        Self {
+        let mut app = Self {
             canvas: Canvas::default(),
             brush,
+            palette,
+            project_path: None,
+            pending_project: None,
             mode,
             canvas_color: cfg.canvas,
             theme_override: cfg.theme.is_some(),
@@ -115,7 +131,18 @@ impl Painty {
             updater: Updater::default(),
             update_checked: false,
             centered: false,
+            release_notes_cache: CommonMarkCache::default(),
+        };
+        if let Some(path) = open_path {
+            match project::load(&path) {
+                Ok(document) => app.apply_project(path, document),
+                Err(error) => {
+                    app.error_text = error;
+                    app.modal = Modal::Error;
+                }
+            }
         }
+        app
     }
 
     /// Closes `modal`, unless another dialog has taken its place in the meantime.
@@ -189,6 +216,59 @@ impl Painty {
             ctx.pixels_per_point(),
         )
         .err()
+    }
+
+    fn save_project(&mut self) {
+        let path = self.project_path.clone().or_else(|| {
+            rfd::FileDialog::new()
+                .add_filter(t("project.file_type"), &["painty"])
+                .set_file_name("drawing.painty")
+                .save_file()
+        });
+        let Some(mut path) = path else {
+            return;
+        };
+        if !path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("painty"))
+        {
+            path.set_extension("painty");
+        }
+        match project::save(&path, self.canvas.lines(), &self.palette, &self.brush) {
+            Ok(()) => self.project_path = Some(path),
+            Err(error) => {
+                self.error_text = error;
+                self.modal = Modal::Error;
+            }
+        }
+    }
+
+    fn open_project(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter(t("project.file_type"), &["painty"])
+            .pick_file()
+        else {
+            return;
+        };
+        match project::load(&path) {
+            Ok(document) if self.canvas.is_empty() => self.apply_project(path, document),
+            Ok(document) => {
+                self.pending_project = Some((path, document));
+                self.modal = Modal::OpenConfirm;
+            }
+            Err(error) => {
+                self.error_text = error;
+                self.modal = Modal::Error;
+            }
+        }
+    }
+
+    fn apply_project(&mut self, path: PathBuf, document: Document) {
+        self.canvas.replace_lines(document.lines);
+        self.palette = document.palette;
+        self.brush = document.brush;
+        self.project_path = Some(path);
     }
 
     /// True while the update prompt is (or should be) on screen.
@@ -295,6 +375,9 @@ impl Painty {
             if prev != ink && self.brush.color == prev {
                 self.brush.color = ink;
             }
+            if self.palette[0] == prev {
+                self.palette[0] = ink;
+            }
         }
         self.last_ink = Some(ink);
     }
@@ -304,13 +387,15 @@ impl Painty {
         if self.modal != Modal::None || self.update_prompt_open() {
             return;
         }
-        let (cmd, shift, undo, redo, save) = ctx.input(|i| {
+        let (cmd, shift, undo, redo, save, open, reset_view) = ctx.input(|i| {
             (
                 i.modifiers.command,
                 i.modifiers.shift,
                 i.key_pressed(Key::Z),
                 i.key_pressed(Key::Y),
                 i.key_pressed(Key::S),
+                i.key_pressed(Key::O),
+                i.key_pressed(Key::Num0),
             )
         });
         if cmd && undo {
@@ -325,13 +410,25 @@ impl Painty {
             self.canvas.redo();
         }
         if cmd && save {
-            self.open_export();
+            if shift {
+                self.open_export();
+            } else {
+                self.save_project();
+            }
+        }
+        if cmd && open {
+            self.open_project();
+        }
+        if cmd && reset_view {
+            self.canvas.reset_view();
         }
     }
 
     /// Floating toolbar and the action it returns.
     fn show_toolbar(&mut self, ctx: &egui::Context, c: &Colors) {
-        match toolbar::show(ctx, &mut self.brush, c) {
+        match toolbar::show(ctx, &mut self.brush, &mut self.palette, c) {
+            Some(Action::OpenProject) => self.open_project(),
+            Some(Action::SaveProject) => self.save_project(),
             Some(Action::Undo) => self.canvas.undo(),
             Some(Action::Clear) => {
                 // Nothing to clear: skip the confirmation.
@@ -355,7 +452,7 @@ impl Painty {
     fn show_settings(&mut self, ctx: &egui::Context, c: &Colors) {
         let mut settings_open = self.modal == Modal::Settings;
         let previous_mode = self.mode;
-        settings::show(
+        let show_release_notes = settings::show(
             ctx,
             &mut settings_open,
             &mut self.mode,
@@ -365,12 +462,44 @@ impl Painty {
             &mut self.updater,
             c,
         );
+        if show_release_notes {
+            self.modal = Modal::ReleaseNotes;
+        }
         // Picking a theme stops following the system, and is saved.
         if self.mode != previous_mode {
             self.theme_override = true;
         }
         if !settings_open {
             self.close(Modal::Settings);
+        }
+    }
+
+    fn show_release_notes(&mut self, ctx: &egui::Context, c: &Colors) {
+        let open = self.modal == Modal::ReleaseNotes;
+        let mut close = false;
+        let dismissed = dialog::show(ctx, "release_notes", open, c, 600.0, c.surface, |ui| {
+            widgets::title(ui, c, t("settings.release_notes"));
+            ui.add_space(12.0);
+            CommonMarkViewer::new().show(
+                ui,
+                &mut self.release_notes_cache,
+                include_str!("../RELEASE_NOTES.md"),
+            );
+            ui.add_space(16.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                close = widgets::button(
+                    ui,
+                    "release_notes_close",
+                    c,
+                    t("button.close"),
+                    Kind::Primary,
+                    100.0,
+                )
+                .clicked();
+            });
+        });
+        if close || dismissed {
+            self.modal = Modal::Settings;
         }
     }
 
@@ -381,10 +510,57 @@ impl Painty {
             canvas: self.canvas_color,
             language: self.language,
             auto_update: self.auto_update,
+            palette: self.palette,
         };
         if current != self.last_saved {
             config::save(&current);
             self.last_saved = current;
+        }
+    }
+
+    fn show_open_confirm(&mut self, ctx: &egui::Context, c: &Colors) {
+        let mut replace = false;
+        let mut cancel = false;
+        let open = self.modal == Modal::OpenConfirm;
+        let dismissed = dialog::show(ctx, "confirm_open", open, c, 380.0, c.surface, |ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+            widgets::title(ui, c, t("dialog.open.title"));
+            ui.add_space(10.0);
+            ui.label(
+                RichText::new(t("dialog.open.body"))
+                    .size(14.0)
+                    .color(c.text_dim),
+            );
+            ui.add_space(24.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                if widgets::button(ui, "open_cancel", c, t("button.cancel"), Kind::Soft, 161.0)
+                    .clicked()
+                {
+                    cancel = true;
+                }
+                if widgets::button(
+                    ui,
+                    "open_replace",
+                    c,
+                    t("button.replace"),
+                    Kind::Danger,
+                    161.0,
+                )
+                .clicked()
+                {
+                    replace = true;
+                }
+            });
+        });
+        if replace {
+            if let Some((path, document)) = self.pending_project.take() {
+                self.apply_project(path, document);
+            }
+        }
+        if replace || cancel || dismissed {
+            self.pending_project = None;
+            self.close(Modal::OpenConfirm);
         }
     }
 
@@ -503,15 +679,15 @@ impl Painty {
         let error = self.error_text.clone();
         let mut close = false;
         let open = self.modal == Modal::Error;
-        let dismissed = dialog::show(ctx, "export_error", open, c, 360.0, c.surface, |ui| {
+        let dismissed = dialog::show(ctx, "operation_error", open, c, 360.0, c.surface, |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-            widgets::title(ui, c, t("dialog.export_error.title"));
+            widgets::title(ui, c, t("dialog.error.title"));
             ui.add_space(10.0);
             ui.label(RichText::new(error.as_str()).color(c.text_dim));
             ui.add_space(24.0);
             if widgets::button(
                 ui,
-                "export_error_close",
+                "operation_error_close",
                 c,
                 t("button.close"),
                 Kind::Soft,
@@ -537,8 +713,9 @@ impl Painty {
                 "settings",
                 "confirm_clear",
                 "export_form",
-                "export_error",
+                "operation_error",
                 "confirm_exit",
+                "confirm_open",
             ]
             .iter()
             .any(|id| dialog::is_visible(ctx, id));
@@ -695,17 +872,30 @@ impl eframe::App for Painty {
 
         egui::CentralPanel::default()
             .frame(Frame::none().fill(c.canvas_bg))
-            .show(ctx, |ui| self.canvas.show(ui, &self.brush, c.text_dim));
+            .show(ctx, |ui| self.canvas.show(ui, &mut self.brush, c.text_dim));
 
         self.show_toolbar(ctx, &c);
         self.show_settings(ctx, &c);
+        self.show_release_notes(ctx, &c);
         self.save_settings_if_changed();
 
         // Dialogs, from the most common to the least. The update prompt waits for the others.
         self.show_clear_dialog(ctx, &c);
         self.show_export_dialog(ctx, &c);
+        self.show_open_confirm(ctx, &c);
         self.show_error_dialog(ctx, &c);
         self.show_update_prompt(ctx, &c);
         self.show_quit_dialog(ctx, &c);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn bundled_release_notes_are_markdown_for_the_current_version() {
+        let notes = include_str!("../RELEASE_NOTES.md");
+        let expected_title = format!("# 🎨 Painty {}", env!("CARGO_PKG_VERSION"));
+        assert!(notes.starts_with(&expected_title));
+        assert!(notes.lines().any(|line| line.starts_with("- ")));
     }
 }

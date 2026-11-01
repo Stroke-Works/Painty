@@ -6,8 +6,8 @@
 //! to text, then the slider reaches full length and the palette row opens.
 
 use eframe::egui::{
-    self, vec2, Align, Align2, Color32, Context, FontId, Frame, Id, Key, Layout, Margin, Rect,
-    Rounding, Sense, Stroke, Ui, UiBuilder,
+    self, pos2, vec2, Align, Align2, Color32, Context, FontId, Frame, Id, Key, Layout, Margin,
+    Rect, Response, Rounding, Sense, Stroke, Ui, UiBuilder,
 };
 
 use crate::i18n::t;
@@ -17,6 +17,8 @@ use crate::widgets::{self, Icon};
 
 /// Actions the toolbar can request from the app.
 pub enum Action {
+    OpenProject,
+    SaveProject,
     Undo,
     Clear,
     Settings,
@@ -70,7 +72,12 @@ fn main_width(g: f32, labels: f32, undo_w: f32, clear_w: f32, slider: f32) -> f3
 
 /// Draws the toolbar at the bottom of the window and returns the action clicked
 /// this frame, if any.
-pub fn show(ctx: &Context, brush: &mut Brush, c: &Colors) -> Option<Action> {
+pub fn show(
+    ctx: &Context,
+    brush: &mut Brush,
+    palette: &mut [Color32; 6],
+    c: &Colors,
+) -> Option<Action> {
     let screen_w = ctx.screen_rect().width();
     // Gap between elements: 4 px at the minimum window width, 10 px from 700 px.
     let g = 4.0 + 6.0 * ((screen_w - 480.0) / 220.0).clamp(0.0, 1.0);
@@ -112,7 +119,7 @@ pub fn show(ctx: &Context, brush: &mut Brush, c: &Colors) -> Option<Action> {
                         |ui| {
                             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                             if tp > 0.001 {
-                                palette_row(ui, brush, c, g, tp, palette_w);
+                                palette_row(ui, brush, palette, c, g, tp, palette_w);
                             }
                             ui.allocate_ui_with_layout(
                                 vec2(row_w, ROW_H),
@@ -198,19 +205,7 @@ fn main_row(
         widgets::px_label(ui, c, &format!("{:.0} px", brush.width));
     });
     cell(ui, "tool", 1.0, TOOL_W, g, |ui| {
-        widgets::segmented_sized(
-            ui,
-            "toolbar_tool",
-            c,
-            &mut brush.tool,
-            &[
-                (Tool::Brush, t("tool.brush")),
-                (Tool::Eraser, t("tool.eraser")),
-            ],
-            64.0,
-            32.0,
-            13.0,
-        );
+        tool_dropdown(ui, brush, c);
     });
     cell(ui, "div1", 1.0, 1.0, g, |ui| widgets::divider(ui, c));
 
@@ -249,15 +244,9 @@ fn main_row(
     cell(ui, "div2", tl, 1.0, g, |ui| widgets::divider(ui, c));
 
     cell(ui, "export", 1.0, ICON_W, g, |ui| {
-        icon_action(
-            ui,
-            "toolbar_export",
-            c,
-            Icon::Export,
-            t("action.export"),
-            &mut *action,
-            Action::Export,
-        )
+        if let Some(selected) = project_dropdown(ui, c) {
+            *action = Some(selected);
+        }
     });
     cell(ui, "settings", 1.0, ICON_W, 0.0, |ui| {
         icon_action(
@@ -270,6 +259,295 @@ fn main_row(
             Action::Settings,
         )
     });
+}
+
+fn tool_dropdown(ui: &mut Ui, brush: &mut Brush, c: &Colors) {
+    let response = dropdown_button(
+        ui,
+        "toolbar_tool",
+        tool_name(brush.tool),
+        brush.tool,
+        c,
+        TOOL_W - 8.0,
+    );
+    let ctx = ui.ctx().clone();
+    let id = Id::new("toolbar_tool_menu_open");
+    let mut open = ctx.data(|data| data.get_temp::<bool>(id)).unwrap_or(false);
+    if response.clicked() {
+        open = !open;
+    }
+
+    let mut selected_tool = None;
+    let mut fill_changed = false;
+    if open {
+        let menu_rect = dropdown_panel(&ctx, response.rect, "toolbar_tool_menu", c, 224.0, |ui| {
+            for (tool, key) in [
+                (Tool::Brush, "tool.brush"),
+                (Tool::Eraser, "tool.eraser"),
+                (Tool::Line, "tool.line"),
+                (Tool::Rectangle, "tool.rectangle"),
+                (Tool::Ellipse, "tool.ellipse"),
+                (Tool::Eyedropper, "tool.eyedropper"),
+            ] {
+                if dropdown_option(ui, c, t(key), Some(tool), brush.tool == tool, 214.0).clicked() {
+                    selected_tool = Some(tool);
+                }
+            }
+            ui.add_space(3.0);
+            ui.separator();
+            fill_changed = fill_shapes_button(ui, c, brush.fill_shapes).clicked();
+            if fill_changed {
+                brush.fill_shapes = !brush.fill_shapes;
+            }
+        });
+        let escape = ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, Key::Escape));
+        let outside_pressed = ctx.input(|input| {
+            input.pointer.any_pressed()
+                && input.pointer.interact_pos().is_some_and(|point| {
+                    !menu_rect.contains(point) && !response.rect.contains(point)
+                })
+        });
+        open = keep_dropdown_open(
+            open,
+            escape,
+            selected_tool.is_some(),
+            fill_changed,
+            outside_pressed,
+        );
+    }
+    if let Some(tool) = selected_tool {
+        brush.tool = tool;
+    }
+    ctx.data_mut(|data| data.insert_temp(id, open));
+}
+
+fn project_dropdown(ui: &mut Ui, c: &Colors) -> Option<Action> {
+    let response = widgets::icon_button(ui, "toolbar_export", c, Icon::Export, t("menu.files"));
+    let ctx = ui.ctx().clone();
+    let id = Id::new("toolbar_project_menu_open");
+    let mut open = ctx.data(|data| data.get_temp::<bool>(id)).unwrap_or(false);
+    if response.clicked() {
+        open = !open;
+    }
+
+    let mut selected = None;
+    if open {
+        let menu_rect = dropdown_panel(
+            &ctx,
+            response.rect,
+            "toolbar_project_menu",
+            c,
+            248.0,
+            |ui| {
+                for (label, action) in [
+                    ("project.open", Action::OpenProject),
+                    ("project.save", Action::SaveProject),
+                    ("action.export", Action::Export),
+                ] {
+                    if dropdown_option(ui, c, t(label), None, false, 238.0).clicked() {
+                        selected = Some(action);
+                    }
+                }
+            },
+        );
+        let escape = ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, Key::Escape));
+        let outside_pressed = ctx.input(|input| {
+            input.pointer.any_pressed()
+                && input.pointer.interact_pos().is_some_and(|point| {
+                    !menu_rect.contains(point) && !response.rect.contains(point)
+                })
+        });
+        open = keep_dropdown_open(open, escape, selected.is_some(), false, outside_pressed);
+    }
+    ctx.data_mut(|data| data.insert_temp(id, open));
+    selected
+}
+
+fn keep_dropdown_open(
+    open: bool,
+    escape: bool,
+    item_selected: bool,
+    option_changed: bool,
+    outside_pressed: bool,
+) -> bool {
+    open && !escape && !item_selected && !option_changed && !outside_pressed
+}
+
+fn dropdown_button(
+    ui: &mut Ui,
+    id: &str,
+    label: &str,
+    tool: Tool,
+    c: &Colors,
+    width: f32,
+) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, ROW_H), Sense::click());
+    let hover =
+        ui.ctx()
+            .animate_bool_with_time(Id::new(("dropdown_hover", id)), response.hovered(), 0.12);
+    let fill = c.track.lerp_to_gamma(c.hover, hover);
+    let painter = ui.painter();
+    painter.rect_filled(rect, Rounding::same(9.0), fill);
+    widgets::tool_icon(
+        ui,
+        tool,
+        c,
+        Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), vec2(18.0, 18.0)),
+    );
+    painter.text(
+        pos2(rect.left() + 34.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(13.0),
+        c.text,
+    );
+    let center = pos2(rect.right() - 13.0, rect.center().y);
+    let stroke = Stroke::new(1.5_f32, c.text_dim);
+    painter.line_segment([center + vec2(-3.0, -1.5), center + vec2(0.0, 1.5)], stroke);
+    painter.line_segment([center + vec2(0.0, 1.5), center + vec2(3.0, -1.5)], stroke);
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
+    response
+}
+
+fn dropdown_panel(
+    ctx: &Context,
+    anchor: Rect,
+    id: &str,
+    c: &Colors,
+    width: f32,
+    add_contents: impl FnOnce(&mut Ui),
+) -> Rect {
+    egui::Area::new(Id::new(id))
+        .order(egui::Order::Foreground)
+        .pivot(Align2::RIGHT_BOTTOM)
+        .fixed_pos(pos2(anchor.right(), anchor.top() - 8.0))
+        .show(ctx, |ui| {
+            Frame::none()
+                .fill(c.surface)
+                .stroke(Stroke::new(1.0_f32, c.border))
+                .rounding(Rounding::same(12.0))
+                .inner_margin(Margin::same(5.0))
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
+                    ui.set_width(width - 10.0);
+                    add_contents(ui);
+                });
+        })
+        .response
+        .rect
+}
+
+fn dropdown_option(
+    ui: &mut Ui,
+    c: &Colors,
+    label: &str,
+    tool: Option<Tool>,
+    selected: bool,
+    width: f32,
+) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, 32.0), Sense::click());
+    let painter = ui.painter();
+    let background = if response.hovered() {
+        c.hover
+    } else if selected {
+        c.active
+    } else {
+        c.surface
+    };
+    painter.rect_filled(rect, Rounding::same(7.0), background);
+    if let Some(tool) = tool {
+        widgets::tool_icon(
+            ui,
+            tool,
+            c,
+            Rect::from_center_size(pos2(rect.left() + 17.0, rect.center().y), vec2(18.0, 18.0)),
+        );
+    } else if selected {
+        painter.circle_filled(pos2(rect.left() + 14.0, rect.center().y), 3.0, c.accent);
+    }
+    painter.text(
+        pos2(
+            rect.left() + if tool.is_some() { 34.0 } else { 28.0 },
+            rect.center().y,
+        ),
+        Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(13.0),
+        c.text,
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, label)
+    });
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response
+}
+
+fn fill_shapes_button(ui: &mut Ui, c: &Colors, filled: bool) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(214.0, 36.0), Sense::click());
+    let hover =
+        ui.ctx()
+            .animate_bool_with_time(Id::new("fill_shapes_hover"), response.hovered(), 0.12);
+    let background = if filled { c.active } else { c.surface };
+    ui.painter().rect_filled(
+        rect,
+        Rounding::same(8.0),
+        background.lerp_to_gamma(c.hover, hover),
+    );
+    widgets::tool_icon(
+        ui,
+        Tool::Rectangle,
+        c,
+        Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), vec2(18.0, 18.0)),
+    );
+    ui.painter().text(
+        pos2(rect.left() + 34.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        t("tool.fill"),
+        FontId::proportional(13.0),
+        c.text,
+    );
+
+    let toggle =
+        Rect::from_center_size(pos2(rect.right() - 18.0, rect.center().y), vec2(18.0, 18.0));
+    if filled {
+        ui.painter()
+            .rect_filled(toggle, Rounding::same(5.0), c.accent);
+        let check = c.primary_fg;
+        ui.painter().line_segment(
+            [
+                pos2(toggle.left() + 4.0, toggle.center().y),
+                pos2(toggle.left() + 7.0, toggle.center().y + 3.0),
+            ],
+            Stroke::new(1.7_f32, check),
+        );
+        ui.painter().line_segment(
+            [
+                pos2(toggle.left() + 7.0, toggle.center().y + 3.0),
+                pos2(toggle.right() - 3.0, toggle.top() + 4.0),
+            ],
+            Stroke::new(1.7_f32, check),
+        );
+    } else {
+        ui.painter().rect_stroke(
+            toggle,
+            Rounding::same(5.0),
+            Stroke::new(1.2_f32, c.text_dim),
+        );
+    }
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, filled, t("tool.fill"))
+    });
+    response
 }
 
 fn icon_action(
@@ -288,7 +566,15 @@ fn icon_action(
 
 /// The six ink colours. The row opens above the main row with height `tp`.
 /// While the eraser is active the swatches are dimmed, like the colour button.
-fn palette_row(ui: &mut Ui, brush: &mut Brush, c: &Colors, g: f32, tp: f32, width: f32) {
+fn palette_row(
+    ui: &mut Ui,
+    brush: &mut Brush,
+    palette: &mut [Color32; 6],
+    c: &Colors,
+    g: f32,
+    tp: f32,
+    width: f32,
+) {
     let enabled = brush.tool != Tool::Eraser;
     let (slot, _) = ui.allocate_exact_size(vec2(width, PALETTE_H * tp), Sense::hover());
     let mut row = ui.new_child(
@@ -304,11 +590,11 @@ fn palette_row(ui: &mut Ui, brush: &mut Brush, c: &Colors, g: f32, tp: f32, widt
         row.multiply_opacity(tp);
     }
 
-    let colors = theme::palette(c.ink);
     let mut next = None;
-    for (i, color) in colors.iter().enumerate() {
+    let palette_len = palette.len();
+    for (i, color) in palette.iter_mut().enumerate() {
         let selected = enabled && brush.color == *color;
-        let resp = widgets::palette_swatch(&mut row, i, *color, selected, enabled, c);
+        let resp = widgets::palette_swatch(&mut row, i, color, selected, enabled, c);
         if resp.clicked() {
             brush.color = *color;
             brush.tool = Tool::Brush;
@@ -321,19 +607,49 @@ fn palette_row(ui: &mut Ui, brush: &mut Brush, c: &Colors, g: f32, tp: f32, widt
                 )
             });
             if left || right {
-                let step = if left { colors.len() - 1 } else { 1 };
-                next = Some((i + step) % colors.len());
+                let step = if left { palette_len - 1 } else { 1 };
+                next = Some((i + step) % palette_len);
             }
         }
-        if i + 1 < colors.len() {
+        if i + 1 < palette_len {
             row.add_space(g);
         }
     }
     if let Some(index) = next {
-        brush.color = colors[index];
+        brush.color = palette[index];
         brush.tool = Tool::Brush;
         row.memory_mut(|m| m.request_focus(Id::new(("palette_swatch", index))));
     }
 
     ui.add_space(ROW_GAP * tp);
+}
+
+fn tool_name(tool: Tool) -> &'static str {
+    t(match tool {
+        Tool::Brush => "tool.brush",
+        Tool::Eraser => "tool.eraser",
+        Tool::Line => "tool.line",
+        Tool::Rectangle => "tool.rectangle",
+        Tool::Ellipse => "tool.ellipse",
+        Tool::Eyedropper => "tool.eyedropper",
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keep_dropdown_open;
+
+    #[test]
+    fn dropdown_stays_open_until_dismissed_or_an_option_is_used() {
+        assert!(keep_dropdown_open(true, false, false, false, false));
+        assert!(!keep_dropdown_open(true, true, false, false, false));
+        assert!(!keep_dropdown_open(true, false, true, false, false));
+        assert!(!keep_dropdown_open(true, false, false, true, false));
+        assert!(!keep_dropdown_open(true, false, false, false, true));
+    }
+
+    #[test]
+    fn closed_dropdown_does_not_open_without_a_button_click() {
+        assert!(!keep_dropdown_open(false, false, false, false, false));
+    }
 }

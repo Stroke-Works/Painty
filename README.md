@@ -23,8 +23,13 @@
 - **Brush** with adjustable size and color, and a color picker
 - **Smooth strokes** that follow the pointer without jitter
 - **Eraser** that cuts through existing strokes
+- **Line, rectangle and ellipse tools**, with optional shape filling
+- **Eyedropper** for picking colors from the drawing
+- **Editable projects** saved as `.painty` files, including the drawing, brush and palette
+- **Canvas navigation** with zoom and pan
+- **Customizable six-color palette**, saved between sessions
 - **Undo and redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z)
-- **Export** to PNG or JPEG, with a name and a format (Ctrl+S)
+- **Export** to PNG or JPEG, with a name and a format (Ctrl+Shift+S)
 - **Clear all**, with confirmation
 - **Light and dark theme**, with a light or dark canvas chosen separately
 - **Five languages**: English, French, Spanish, German and Italian, switchable in Settings
@@ -39,6 +44,8 @@
 3. Choose where to install. No administrator rights are needed.
 
 Painty checks for updates when it starts (this can be turned off in **Settings**). You can also check by hand from **Settings → Check for updates**.
+After installing, Windows can offer Painty in **Open with** for `.painty` project files.
+Click the version in **Settings** to read the current release notes.
 
 ## Keyboard shortcuts
 
@@ -46,7 +53,12 @@ Painty checks for updates when it starts (this can be turned off in **Settings**
 |----------|--------|
 | Ctrl+Z | Undo |
 | Ctrl+Y or Ctrl+Shift+Z | Redo |
-| Ctrl+S | Export |
+| Ctrl+O | Open a project |
+| Ctrl+S | Save the current project |
+| Ctrl+Shift+S | Export to PNG or JPEG |
+| Ctrl+0 | Reset canvas zoom and position |
+
+Use the **mouse wheel** to zoom in or out around the pointer. **Middle-click and drag** to move the canvas; Space + drag is also supported. Right-click a palette color to edit it.
 
 ## Languages
 

@@ -31,10 +31,11 @@ pub fn show(
     auto_update: &mut bool,
     updater: &mut Updater,
     c: &Colors,
-) {
+) -> bool {
     if !*open {
         widgets::reset_language_menu(ctx);
     }
+    let mut show_release_notes = false;
     let dismissed = dialog::show(ctx, "settings", *open, c, CARD_W, c.surface_alt, |ui| {
         let width = ui.available_width();
         ui.set_min_height(CONTENT_H);
@@ -116,16 +117,47 @@ pub fn show(
         ui.horizontal(|ui| {
             let (info, _) = ui.allocate_exact_size(vec2(INFO_W, 40.0), Sense::hover());
             let painter = ui.painter().with_clip_rect(info);
-            painter.text(
-                pos2(info.left(), info.top() + 9.0),
-                Align2::LEFT_CENTER,
-                tf(
-                    "settings.version",
-                    &[("version", env!("CARGO_PKG_VERSION"))],
-                ),
-                FontId::proportional(13.0),
-                c.text_dim,
+            let version = tf(
+                "settings.version",
+                &[("version", env!("CARGO_PKG_VERSION"))],
             );
+            let version_rect =
+                egui::Rect::from_min_size(pos2(info.left(), info.top()), vec2(INFO_W, 18.0));
+            let version_response = ui.interact(
+                version_rect,
+                egui::Id::new("settings_release_notes"),
+                Sense::click(),
+            );
+            let version_color = if version_response.hovered() {
+                c.accent
+            } else {
+                c.text_dim
+            };
+            painter.text(
+                pos2(info.left(), info.top() + 8.0),
+                Align2::LEFT_CENTER,
+                &version,
+                FontId::proportional(13.0),
+                version_color,
+            );
+            if version_response.hovered() {
+                let width = painter
+                    .layout_no_wrap(version, FontId::proportional(13.0), version_color)
+                    .size()
+                    .x;
+                painter.line_segment(
+                    [
+                        pos2(info.left(), info.top() + 16.0),
+                        pos2(info.left() + width, info.top() + 16.0),
+                    ],
+                    egui::Stroke::new(1.0_f32, c.accent),
+                );
+                ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            version_response.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Link, true, t("settings.release_notes"))
+            });
+            show_release_notes = version_response.clicked();
             painter.text(
                 pos2(info.left(), info.top() + 27.0),
                 Align2::LEFT_CENTER,
@@ -170,6 +202,7 @@ pub fn show(
     if dismissed {
         *open = false;
     }
+    show_release_notes
 }
 
 /// Short footer status: text, colour and the full error in a tooltip.

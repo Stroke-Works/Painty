@@ -1,3 +1,4 @@
+use eframe::egui;
 use std::{env, fs, path::PathBuf};
 
 use crate::i18n::Lang;
@@ -13,6 +14,7 @@ pub struct Config {
     pub language: Lang,
     /// Look for a new version each time the app starts.
     pub auto_update: bool,
+    pub palette: [egui::Color32; 6],
 }
 
 impl Default for Config {
@@ -22,6 +24,7 @@ impl Default for Config {
             canvas: CanvasColor::Light,
             language: Lang::default(),
             auto_update: true,
+            palette: theme::palette(theme::INK_LIGHT),
         }
     }
 }
@@ -62,6 +65,11 @@ fn parse(text: &str) -> Config {
             }
             // Anything but an explicit "false" keeps the default.
             ("auto_update", v) => cfg.auto_update = v != "false",
+            ("palette", v) => {
+                if let Some(palette) = parse_palette(v) {
+                    cfg.palette = palette;
+                }
+            }
             _ => {}
         }
     }
@@ -77,6 +85,23 @@ fn parse(text: &str) -> Config {
     }
 
     cfg
+}
+
+fn parse_palette(value: &str) -> Option<[egui::Color32; 6]> {
+    let colors = value
+        .split(',')
+        .map(|hex| {
+            if hex.len() != 6 || !hex.is_ascii() {
+                return None;
+            }
+            Some(egui::Color32::from_rgb(
+                u8::from_str_radix(&hex[0..2], 16).ok()?,
+                u8::from_str_radix(&hex[2..4], 16).ok()?,
+                u8::from_str_radix(&hex[4..6], 16).ok()?,
+            ))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    colors.try_into().ok()
 }
 
 /// Loads the settings, or the defaults when the file is missing or unreadable.
@@ -104,8 +129,14 @@ pub fn save(cfg: &Config) {
         CanvasColor::Light => "light",
         CanvasColor::Dark => "dark",
     };
+    let palette = cfg
+        .palette
+        .iter()
+        .map(|color| format!("{:02x}{:02x}{:02x}", color.r(), color.g(), color.b()))
+        .collect::<Vec<_>>()
+        .join(",");
     let text = format!(
-        "theme={theme}\ncanvas={canvas}\nlanguage={}\nauto_update={}\n",
+        "theme={theme}\ncanvas={canvas}\nlanguage={}\nauto_update={}\npalette={palette}\n",
         cfg.language.code(),
         cfg.auto_update
     );
@@ -152,5 +183,20 @@ mod tests {
         let cfg = parse("canvas=dark\nlanguage=en\n");
         assert_eq!(cfg.theme, None);
         assert_eq!(cfg.canvas, CanvasColor::Dark);
+    }
+
+    #[test]
+    fn custom_palette_is_parsed_and_invalid_values_are_ignored() {
+        let cfg = parse("palette=010203,040506,070809,0a0b0c,0d0e0f,101112\n");
+        assert_eq!(cfg.palette[0], egui::Color32::from_rgb(1, 2, 3));
+        assert_eq!(cfg.palette[5], egui::Color32::from_rgb(16, 17, 18));
+        assert_eq!(
+            parse("palette=invalid\n").palette,
+            Config::default().palette
+        );
+        assert_eq!(
+            parse("palette=0é000,040506,070809,0a0b0c,0d0e0f,101112\n").palette,
+            Config::default().palette
+        );
     }
 }

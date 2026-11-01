@@ -4,7 +4,7 @@
 ; The version is passed by release.ps1 and the release workflow (/DMyAppVersion=...),
 ; read from Cargo.toml. This default is only used when building by hand.
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.4"
+  #define MyAppVersion "0.3.0"
 #endif
 
 [Setup]
@@ -33,6 +33,12 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Files]
 Source: "target\release\painty.exe"; DestDir: "{app}"; Flags: ignoreversion
+
+[Registry]
+Root: HKCU; Subkey: "Software\Classes\.painty\OpenWithProgids"; ValueType: string; ValueName: "Painty.Project"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\Painty.Project"; ValueType: string; ValueName: ""; ValueData: "Painty project"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Painty.Project\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\painty.exe,0"
+Root: HKCU; Subkey: "Software\Classes\Painty.Project\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\painty.exe"" ""%1"""
 
 [Icons]
 Name: "{group}\Painty"; Filename: "{app}\painty.exe"

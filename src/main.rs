@@ -10,6 +10,7 @@ mod dialog;
 mod export;
 mod i18n;
 mod model;
+mod project;
 mod settings;
 mod theme;
 mod toolbar;
@@ -17,8 +18,11 @@ mod updater;
 mod widgets;
 
 use eframe::egui;
+use std::path::PathBuf;
 
 fn main() -> eframe::Result {
+    let open_path = std::env::args_os().nth(1).map(PathBuf::from);
+
     // Use the saved language from the first frame, including the window's first texts.
     i18n::set_lang(config::load().language);
 
@@ -42,7 +46,7 @@ fn main() -> eframe::Result {
             // Needed for the SVG icons loaded with include_image!.
             egui_extras::install_image_loaders(&cc.egui_ctx);
             theme::setup(&cc.egui_ctx);
-            Ok(Box::new(app::Painty::new()))
+            Ok(Box::new(app::Painty::new(open_path)))
         }),
     )
 }

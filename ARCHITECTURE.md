@@ -10,6 +10,7 @@ main.rs ──► app.rs ──┬─► canvas.rs ──► model.rs
                     ├─► settings.rs ─┐
                     ├─► dialogs ─────┴─► dialog.rs
                     ├─► export.rs
+                    ├─► project.rs
                     ├─► updater.rs
                     ├─► i18n.rs ◄── assets/lang/*.json
                     └─► config.rs
@@ -39,7 +40,8 @@ theme.rs is used by every UI file.
 | `svg/settings_dark.svg` / `svg/settings_light.svg` | Settings icons for dark and light themes |
 | `svg/undo_dark.svg` / `svg/undo_light.svg` | Undo icons for dark and light themes |
 | `svg/trash_dark.svg` / `svg/trash_light.svg` | Clear icons for dark and light themes |
-| `svg/export_dark.svg` / `svg/export_light.svg` | Export icons for dark and light themes |
+| `svg/brush_*.svg`, `eraser_*.svg`, `line_*.svg`, `rectangle_*.svg`, `ellipse_*.svg`, `eyedropper_*.svg` | Tool icons, with dark and light variants |
+| `svg/export_dark.svg` / `svg/export_light.svg` | Export and project-menu icon |
 | `flags/*.svg` | One flag per language (`en`, `fr`, `es`, `de`, `it`), used by the language dropdown |
 | `fonts/Inter-Regular.ttf` / `fonts/Inter-SemiBold.ttf` | Interface fonts |
 | `lang/*.json` | Interface translations, one file per language. Every file must contain the same keys and the same `{placeholders}` as `en.json`; a test checks it. |
@@ -51,17 +53,18 @@ Icons and flags are loaded using `egui::include_image!`, so they are embedded in
 | File | Role |
 |------|------|
 | `main.rs` | Entry point. Configures window options, the window icon, image loaders and fonts. Hides the console in release builds. |
-| `app.rs` | Main application state (`Painty`). Handles keyboard shortcuts, the currently open dialog (`Modal`) and frame rendering. |
-| `canvas.rs` | Drawing area. Smooths pointer movement, renders strokes, erases by cutting them exactly where the eraser crosses them, and maintains undo/redo history. |
-| `model.rs` | Core data types: `Tool`, `Line` (a single stroke) and `Brush` (current settings). |
-| `toolbar.rs` | Floating toolbar at the bottom of the window. One row whose elements fold in and out with animations to fit the window width, plus a palette row that opens above it when there is room. |
+| `app.rs` | Main application state (`Painty`). Handles keyboard shortcuts, project and export dialogs, the currently open dialog (`Modal`) and frame rendering. |
+| `canvas.rs` | Drawing area. Smooths pointer movement, renders strokes and shapes, handles zoom/pan and color picking, erases strokes or shapes, and maintains undo/redo history. |
+| `model.rs` | Core data types: `Tool`, `Geometry`, `Line` (a stroke or shape) and `Brush` (current settings). |
+| `project.rs` | Reads and writes versioned `.painty` JSON projects, with limits on file size, strokes and points. |
+| `toolbar.rs` | Floating toolbar at the bottom of the window. Its elements fold in and out with animations to fit the window width; it also contains tool, project and palette controls. |
 | `widgets.rs` | Custom UI controls: text buttons, icon buttons, color swatches, size slider, segmented controls and the language dropdown. Focus rings are drawn only for keyboard navigation. |
 | `dialog.rs` | Modal popup system: dimmed background, slide-in animation and scrolling when the window is too short. Popups are measured again once a window resize has settled. |
-| `settings.rs` | Settings dialog: theme, canvas background, language, automatic update check, manual check and version. |
+| `settings.rs` | Settings dialog: theme, canvas background, language, automatic update check, manual check and clickable version. |
 | `export.rs` | Exports drawings to PNG or JPEG. Renders at up to 3× resolution and averages pixels for smoother edges. Very large drawings are exported at a lower scale. |
 | `updater.rs` | Checks for updates and handles self-updates through GitHub Releases, including download progress and SHA-256 verification. Runs in background threads. |
 | `i18n.rs` | Translation system. Defines `Lang` and `Lang::ALL`, loads the JSON files and provides `t("key")` for plain text and `tf("key", &[...])` for formatted text. Missing keys fall back to English. |
-| `config.rs` | Loads and saves settings (theme, canvas background, language and automatic update check) to `%APPDATA%\Painty\settings.txt`. |
+| `config.rs` | Loads and saves settings (theme, canvas background, language, automatic update check and palette) to `%APPDATA%\Painty\settings.txt`. |
 | `theme.rs` | Defines light and dark theme colors (text contrast of at least 4.5:1), the Inter fonts and the egui style. |
 
 ## Toolbar
@@ -72,23 +75,31 @@ The toolbar is a single row that keeps the same order at every width. Each eleme
 2. When it can reach 80 px with the text labels, Undo and Clear switch from icons to text.
 3. When the slider can reach its full length, a palette row of six colors opens above the row.
 
-Widths are measured every frame, so translations of any length fit. With the eraser active, the color button and the palette are dimmed and the size stays visible.
+Widths are measured every frame, so translations of any length fit. With the eraser active, the color button and the palette are dimmed and the size stays visible. The tool selector shows the active tool's SVG and includes the custom fill-shapes toggle. Right-clicking a swatch opens its color editor; the six colors are persisted in settings.
 
 ## Drawing
 
 - **Brush:** Pointer positions are smoothed using `SMOOTHING` in `canvas.rs`. The smoothing is time-based, so it behaves consistently at any frame rate. Points are then added to a `Line`. `Line::push` skips points that are too close together, keeping long strokes lightweight. Each stroke is drawn as flat segments with round caps at both ends. A round disc is added only at the bends sharp enough for a flat joint to show a notch.
 - **Eraser:** Each eraser step tests the eraser disc against the segments of every stroke, not only against their points, so a fast stroke with distant points is cut too. The parts outside the disc are kept as separate strokes. Nothing is allocated when the eraser touches nothing. A complete eraser gesture counts as one undo step.
 - **Undo / Redo:** Each finished stroke or erase operation creates a checkpoint. Strokes are shared using `Arc`, so checkpoints only need to copy pointers. History is limited to `HISTORY_LIMIT` steps.
+- **Shapes:** The line, rectangle and ellipse tools store their geometry in document coordinates. Rectangles and ellipses can be filled; exports render the same shape geometry independently of the current zoom.
+- **Navigation and color picking:** The mouse wheel zooms around the pointer; middle-click and drag or Space+drag pans. Ctrl+0 resets the view. The eyedropper samples drawn strokes and filled shapes, then returns to the brush.
+
+## Projects
+
+The toolbar's project menu opens and saves editable `.painty` files; Ctrl+O and Ctrl+S provide the same actions. The installer registers Painty as an Open With option for `.painty` files, and `main.rs` passes a file opened by Windows to `project.rs` at startup. A project stores its versioned JSON document, drawing geometry, palette and current brush settings. Opening a project with an existing drawing asks for confirmation. Project files are limited to 64 MiB, 100,000 strokes and 2,000,000 points. PNG/JPEG export remains separate (Ctrl+Shift+S).
 
 ## Dialogs
 
-`app.rs` maintains a single `Modal` value, which can represent the settings dialog, clear confirmation, export form, export error or quit confirmation.
+`app.rs` maintains a single `Modal` value, which can represent the settings dialog, clear confirmation, project replacement confirmation, export form, operation error or quit confirmation.
 
 The update prompt is driven by the updater status and waits until no other dialog is visible. Each dialog is rendered through `dialog.rs`, which preserves its content while it fades out.
 
+Clicking the version in Settings opens the current `RELEASE_NOTES.md` in an in-app CommonMark viewer.
+
 ## Export
 
-The export dialog asks for a file name and format. Once confirmed, a file dialog lets the user choose where to save the drawing.
+The export dialog asks for a file name and format. Once confirmed, a file dialog lets the user choose where to save the drawing. Use Ctrl+Shift+S; Ctrl+S is reserved for saving editable projects.
 
 `export.rs` renders the entire drawing (not just the visible area) at up to three times the original resolution, averages each block of pixels and saves the result. The exported background uses the current canvas color.
 

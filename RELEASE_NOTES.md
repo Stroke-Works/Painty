@@ -1,11 +1,15 @@
-# 🎨 Painty 0.2.4
+# 🎨 Painty 0.3.0
 
-### Bug Fixes
+### What's New
 
-- The language menu in Settings no longer closes by itself while open.
+- Editable `.painty` project files.
+- Canvas zoom and panning.
+- Line, rectangle and ellipse tools, with an optional fill.
+- An eyedropper and a customizable, persistent color palette.
+- Current release notes are available by clicking the version in Settings.
 
 ### 📦 Installation
 
-Download `PaintySetup-0.2.4.exe` for a new installation.
+Download `PaintySetup-0.3.0.exe` for a new installation.
 
 Already have Painty installed? Update directly from **Settings → Check for updates**, or install the update when prompted at startup.

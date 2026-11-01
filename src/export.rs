@@ -11,7 +11,7 @@ use image::codecs::jpeg::JpegEncoder;
 use image::{ImageFormat, RgbImage};
 
 use crate::i18n::t;
-use crate::model::Line;
+use crate::model::{Geometry, Line};
 
 /// Margin kept around the drawing in the exported image, in points.
 const MARGIN: f32 = 8.0;
@@ -204,14 +204,58 @@ impl Raster<'_> {
     /// Paints one stroke as a series of round segments.
     fn draw(&mut self, line: &Line, origin: Pos2, ppp: f32) {
         let r = line.width * 0.5 * ppp;
-        let pts: Vec<Vec2> = line.points.iter().map(|p| (*p - origin) * ppp).collect();
+        let pts: Vec<Vec2> = line
+            .outline_points()
+            .iter()
+            .map(|p| (*p - origin) * ppp)
+            .collect();
 
-        match pts.len() {
-            0 => {}
-            1 => self.segment(pts[0], pts[0], r, line.color),
-            _ => {
-                for pair in pts.windows(2) {
+        if line.filled && matches!(line.geometry, Geometry::Rectangle | Geometry::Ellipse) {
+            self.fill_polygon(&pts, line.color);
+        }
+        match (line.geometry, pts.as_slice()) {
+            (_, []) => {}
+            (Geometry::Rectangle | Geometry::Ellipse, points) if points.len() > 2 => {
+                for pair in points.windows(2) {
                     self.segment(pair[0], pair[1], r, line.color);
+                }
+            }
+            (_, [only]) => self.segment(*only, *only, r, line.color),
+            (_, points) => {
+                for pair in points.windows(2) {
+                    self.segment(pair[0], pair[1], r, line.color);
+                }
+            }
+        }
+    }
+
+    fn fill_polygon(&mut self, points: &[Vec2], color: Color32) {
+        let points = if points.first() == points.last() {
+            &points[..points.len().saturating_sub(1)]
+        } else {
+            points
+        };
+        if points.len() < 3 {
+            return;
+        }
+        let min_x = points.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
+        let max_x = points.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max);
+        let min_y = points.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+        let max_y = points.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
+        let x0 = min_x.floor().max(0.0) as usize;
+        let x1 = max_x.ceil().min(self.w as f32 - 1.0) as usize;
+        let y0 = min_y.floor().max(0.0) as usize;
+        let y1 = max_y.ceil().min(self.h as f32 - 1.0) as usize;
+        if x0 > x1 || y0 > y1 {
+            return;
+        }
+        let rgb = [color.r(), color.g(), color.b()];
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let point = vec2(x as f32 + 0.5, y as f32 + 0.5);
+                if point_in_polygon(point, points) {
+                    let index = (y * self.w + x) * 3;
+                    self.buf[index..index + 3].copy_from_slice(&rgb);
                 }
             }
         }
@@ -248,6 +292,22 @@ impl Raster<'_> {
     }
 }
 
+fn point_in_polygon(point: Vec2, polygon: &[Vec2]) -> bool {
+    let mut inside = false;
+    let mut previous = polygon.len() - 1;
+    for current in 0..polygon.len() {
+        let a = polygon[current];
+        let b = polygon[previous];
+        if (a.y > point.y) != (b.y > point.y)
+            && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x
+        {
+            inside = !inside;
+        }
+        previous = current;
+    }
+    inside
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +315,11 @@ mod tests {
 
     fn stroke(points: &[Pos2]) -> Arc<Line> {
         Arc::new(Line::from_points(Color32::BLACK, 4.0, points.to_vec()))
+    }
+
+    fn pixel(buf: &[u8], x: usize, y: usize) -> [u8; 3] {
+        let index = (y * 20 + x) * 3;
+        buf[index..index + 3].try_into().unwrap()
     }
 
     #[test]
@@ -325,5 +390,49 @@ mod tests {
         let at = |x: usize, y: usize| buf[(y * 20 + x) * 3];
         assert_eq!(at(10, 10), 0);
         assert_eq!(at(0, 0), 255);
+    }
+
+    #[test]
+    fn raster_fills_rectangle_shapes() {
+        let mut buf = vec![255u8; 20 * 20 * 3];
+        let mut raster = Raster {
+            buf: &mut buf,
+            w: 20,
+            h: 20,
+        };
+        let rectangle = Line::shape(
+            Geometry::Rectangle,
+            Color32::RED,
+            2.0,
+            true,
+            pos2(4.0, 4.0),
+            pos2(16.0, 16.0),
+        );
+        raster.draw(&rectangle, pos2(0.0, 0.0), 1.0);
+
+        assert_eq!(pixel(&buf, 10, 10), [255, 0, 0]);
+        assert_eq!(pixel(&buf, 1, 1), [255, 255, 255]);
+    }
+
+    #[test]
+    fn raster_fills_ellipses_without_filling_their_corners() {
+        let mut buf = vec![255u8; 20 * 20 * 3];
+        let mut raster = Raster {
+            buf: &mut buf,
+            w: 20,
+            h: 20,
+        };
+        let ellipse = Line::shape(
+            Geometry::Ellipse,
+            Color32::BLUE,
+            2.0,
+            true,
+            pos2(4.0, 4.0),
+            pos2(16.0, 16.0),
+        );
+        raster.draw(&ellipse, pos2(0.0, 0.0), 1.0);
+
+        assert_eq!(pixel(&buf, 10, 10), [0, 0, 255]);
+        assert_eq!(pixel(&buf, 4, 4), [255, 255, 255]);
     }
 }

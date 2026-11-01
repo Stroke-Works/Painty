@@ -7,10 +7,11 @@
 
 use eframe::egui::{
     self, pos2, vec2, Align, Align2, Color32, CursorIcon, FontId, Id, Image, Key, Layout, Painter,
-    Response, Rounding, Sense, Stroke, Ui, UiBuilder, WidgetInfo, WidgetType,
+    PointerButton, Response, Rounding, Sense, Stroke, Ui, UiBuilder, WidgetInfo, WidgetType,
 };
 
 use crate::i18n::{t, Lang};
+use crate::model::Tool;
 use crate::theme::{self, Colors};
 
 /// Visual style of a text button.
@@ -24,8 +25,8 @@ pub enum Kind {
     Danger,
 }
 
-/// Icons loaded from `assets/svg` (one file per theme).
-#[derive(Clone, Copy)]
+/// Toolbar icons; most are loaded from `assets/svg`, while project files are drawn with egui.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Icon {
     Undo,
     Trash,
@@ -222,6 +223,24 @@ pub fn icon_button(ui: &mut Ui, id: &str, c: &Colors, icon: Icon, tip: &str) -> 
     resp.on_hover_text(tip)
 }
 
+pub fn tool_icon(ui: &Ui, tool: Tool, c: &Colors, rect: eframe::egui::Rect) {
+    let source = match (tool, c.dark) {
+        (Tool::Brush, false) => egui::include_image!("../assets/svg/brush_dark.svg"),
+        (Tool::Brush, true) => egui::include_image!("../assets/svg/brush_light.svg"),
+        (Tool::Eraser, false) => egui::include_image!("../assets/svg/eraser_dark.svg"),
+        (Tool::Eraser, true) => egui::include_image!("../assets/svg/eraser_light.svg"),
+        (Tool::Line, false) => egui::include_image!("../assets/svg/line_dark.svg"),
+        (Tool::Line, true) => egui::include_image!("../assets/svg/line_light.svg"),
+        (Tool::Rectangle, false) => egui::include_image!("../assets/svg/rectangle_dark.svg"),
+        (Tool::Rectangle, true) => egui::include_image!("../assets/svg/rectangle_light.svg"),
+        (Tool::Ellipse, false) => egui::include_image!("../assets/svg/ellipse_dark.svg"),
+        (Tool::Ellipse, true) => egui::include_image!("../assets/svg/ellipse_light.svg"),
+        (Tool::Eyedropper, false) => egui::include_image!("../assets/svg/eyedropper_dark.svg"),
+        (Tool::Eyedropper, true) => egui::include_image!("../assets/svg/eyedropper_light.svg"),
+    };
+    Image::new(source).paint_at(ui, rect);
+}
+
 /// 28×28 colour button. Opens the egui colour picker above the toolbar.
 /// When `enabled` is false the swatch is drawn at 40 % opacity and ignores clicks.
 pub fn color_button(
@@ -282,18 +301,12 @@ pub fn color_button(
 pub fn palette_swatch(
     ui: &mut Ui,
     index: usize,
-    color: Color32,
+    color: &mut Color32,
     selected: bool,
     enabled: bool,
     c: &Colors,
 ) -> Response {
-    let (rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-    let sense = if enabled {
-        Sense::click()
-    } else {
-        Sense::hover()
-    };
-    let resp = ui.interact(rect, Id::new(("palette_swatch", index)), sense);
+    let (rect, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
 
     let hov = ui.ctx().animate_bool_with_time(
         Id::new(("palette_hover", index)),
@@ -317,11 +330,39 @@ pub fn palette_swatch(
 
     if enabled {
         pointer_cursor(ui, &resp);
+        let popup_id = Id::new(("palette_color_popup", index));
+        let secondary_clicked = ui.input(|input| {
+            input.pointer.button_clicked(PointerButton::Secondary)
+                && input
+                    .pointer
+                    .interact_pos()
+                    .is_some_and(|pointer| rect.contains(pointer))
+        });
+        if secondary_clicked {
+            ui.memory_mut(|memory| memory.toggle_popup(popup_id));
+        }
+        if ui.memory(|memory| memory.is_popup_open(popup_id)) {
+            egui::popup_above_or_below_widget(
+                ui,
+                popup_id,
+                &resp,
+                egui::AboveOrBelow::Above,
+                egui::PopupCloseBehavior::CloseOnClickOutside,
+                |ui| {
+                    ui.spacing_mut().slider_width = 220.0;
+                    egui::color_picker::color_picker_color32(
+                        ui,
+                        color,
+                        egui::color_picker::Alpha::Opaque,
+                    );
+                },
+            );
+        }
     }
     resp.widget_info(|| {
         WidgetInfo::selected(WidgetType::Button, enabled, selected, t("toolbar.color"))
     });
-    resp
+    resp.on_hover_text(t("palette.edit_tip"))
 }
 
 /// 4 px track with an 18 px thumb. The whole track is clickable and draggable;
