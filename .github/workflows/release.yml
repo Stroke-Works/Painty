@@ -1,6 +1,6 @@
 name: Release
 
-# Publishes a release when a version tag is pushed (git tag v0.2.2 && git push --tags).
+# Publishes a release when a version tag is pushed (git tag vx.x.x && git push origin vx.x.x).
 # The tag must match the version in Cargo.toml.
 on:
   push:
@@ -32,6 +32,7 @@ jobs:
           if ("v$version" -ne "${{ github.ref_name }}") {
             throw "Tag ${{ github.ref_name }} does not match Cargo.toml version $version"
           }
+          "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Test
         run: cargo test --release
@@ -51,14 +52,14 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
-          $version = "${{ github.ref_name }}".TrimStart('v')
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" painty.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:RELEASE_VERSION" painty.iss
 
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
+          name: Painty ${{ env.RELEASE_VERSION }}
+          body_path: RELEASE_NOTES.md
           files: |
             dist/painty.exe
             dist/painty.exe.sha256
             dist/PaintySetup-*.exe
-          generate_release_notes: true
