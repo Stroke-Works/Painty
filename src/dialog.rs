@@ -11,6 +11,7 @@ const EDGE_MARGIN: f32 = 16.0;
 const INNER_PADDING: f32 = 24.0;
 /// Corner radius of the popup card.
 const ROUNDING: f32 = 16.0;
+const ANIMATION_TIME: f32 = 0.24;
 
 /// True while the dialog is on screen, including its fade-out.
 /// Call it after `show` has run for the current frame.
@@ -19,7 +20,7 @@ pub fn is_visible(ctx: &Context, id: &str) -> bool {
         .is_some_and(|t| t > 0.0)
 }
 
-/// Animated modal popup with a dimmed background and a slide-in effect.
+/// Animated modal popup with a dimmed background, fade and slide.
 /// `width` is the outer width of the card, padding included. It is reduced if
 /// the window is too narrow, and the popup is always kept inside the window.
 /// `fill` is the card colour: `surface_alt` for the settings card, `surface`
@@ -51,8 +52,13 @@ pub fn show(
     ctx.data_mut(|d| d.insert_temp(was_open_id, open));
     let session = ctx.data(|d| d.get_temp::<u32>(session_id)).unwrap_or(0);
 
-    // Fade and slide progress, from 0.0 (closed) to 1.0 (open).
-    let t = ctx.animate_bool_with_time(Id::new(("dialog_anim", id)), open, 0.16);
+    // Ease both opening and closing so the popup does not abruptly disappear.
+    let t = ctx.animate_bool_with_time_and_easing(
+        Id::new(("dialog_anim", id)),
+        open,
+        ANIMATION_TIME,
+        egui::emath::easing::cubic_out,
+    );
     // Remembered so callers can check whether another dialog is still on screen.
     ctx.data_mut(|d| d.insert_temp(Id::new(("dialog_visibility", id)), t));
     if t <= 0.0 {
@@ -94,11 +100,12 @@ pub fn show(
         .show(ctx, |ui| {
             theme::apply(ui, c);
             Frame::none()
-                .fill(fill)
-                .stroke(Stroke::new(1.0_f32, c.border))
+                .fill(fill.gamma_multiply(t))
+                .stroke(Stroke::new(1.0_f32, c.border.gamma_multiply(t)))
                 .rounding(Rounding::same(ROUNDING))
                 .inner_margin(Margin::same(INNER_PADDING))
                 .show(ui, |ui| {
+                    ui.multiply_opacity(t);
                     // The popup is exactly as wide as its content, which never exceeds the window.
                     ui.set_width(content_w);
                     // The height is decided here, from the content size measured on the

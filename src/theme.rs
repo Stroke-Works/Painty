@@ -218,7 +218,42 @@ fn font_definitions() -> FontDefinitions {
         ],
     );
 
+    add_windows_emoji_font(&mut fonts);
+
     fonts
+}
+
+fn add_windows_emoji_font(fonts: &mut FontDefinitions) {
+    #[cfg(windows)]
+    {
+        let Some(windows_dir) = std::env::var_os("WINDIR") else {
+            return;
+        };
+        let font_path = std::path::PathBuf::from(windows_dir)
+            .join("Fonts")
+            .join("seguiemj.ttf");
+        let Ok(font_data) = std::fs::read(font_path) else {
+            return;
+        };
+
+        fonts
+            .font_data
+            .insert("segoe-ui-emoji".to_owned(), FontData::from_owned(font_data));
+        for family in [
+            FontFamily::Proportional,
+            FontFamily::Name(Arc::from("Inter SemiBold")),
+        ] {
+            let fallbacks = fonts.families.entry(family).or_default();
+            let index = fallbacks
+                .iter()
+                .position(|font| font == "NotoEmoji-Regular")
+                .unwrap_or(fallbacks.len());
+            fallbacks.insert(index, "segoe-ui-emoji".to_owned());
+        }
+    }
+
+    #[cfg(not(windows))]
+    let _ = fonts;
 }
 
 /// Loads Inter with emoji fallbacks and sets readable text sizes.
@@ -337,5 +372,24 @@ mod tests {
             .unwrap();
         assert!(family.iter().any(|font| font == "NotoEmoji-Regular"));
         assert!(family.iter().any(|font| font == "emoji-icon-font"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_emoji_font_precedes_bundled_fallbacks() {
+        let fonts = font_definitions();
+        let family = fonts.families.get(&FontFamily::Proportional).unwrap();
+        let segoe = family.iter().position(|font| font == "segoe-ui-emoji");
+        let noto = family.iter().position(|font| font == "NotoEmoji-Regular");
+        assert!(fonts.font_data.contains_key("segoe-ui-emoji"));
+        assert!(segoe.unwrap() < noto.unwrap());
+
+        let mut fonts = Some(fonts);
+        let context = Context::default();
+        let _ = context.run(egui::RawInput::default(), |ctx| {
+            ctx.set_fonts(fonts.take().unwrap());
+            let width = ctx.fonts(|fonts| fonts.glyph_width(&FontId::proportional(16.0), '🎨'));
+            assert!(width > 0.0);
+        });
     }
 }

@@ -497,26 +497,19 @@ impl Painty {
         let dismissed = dialog::show(ctx, "release_notes", open, c, 760.0, c.surface, |ui| {
             widgets::title(ui, c, t("settings.release_notes"));
             ui.add_space(14.0);
-            Frame::none()
-                .fill(c.field)
-                .stroke(egui::Stroke::new(1.0_f32, c.border))
-                .rounding(egui::Rounding::same(12.0))
-                .inner_margin(egui::Margin::same(16.0))
-                .show(ui, |ui| {
-                    ui.visuals_mut().code_bg_color = c.track;
-                    ui.visuals_mut().extreme_bg_color = c.field;
-                    ui.visuals_mut().widgets.noninteractive.bg_stroke =
-                        egui::Stroke::new(1.0_f32, c.border);
-                    ui.spacing_mut().item_spacing.y = 10.0;
-                    ui.style_mut()
-                        .text_styles
-                        .insert(egui::TextStyle::Heading, egui::FontId::proportional(21.0));
-                    CommonMarkViewer::new().show(
-                        ui,
-                        &mut self.release_notes_cache,
-                        &self.release_notes_text,
-                    );
-                });
+            ui.visuals_mut().code_bg_color = c.track;
+            ui.visuals_mut().extreme_bg_color = c.field;
+            ui.visuals_mut().widgets.noninteractive.bg_stroke =
+                egui::Stroke::new(1.0_f32, c.border);
+            ui.spacing_mut().item_spacing.y = 10.0;
+            ui.style_mut()
+                .text_styles
+                .insert(egui::TextStyle::Heading, egui::FontId::proportional(21.0));
+            CommonMarkViewer::new().indentation_spaces(2).show(
+                ui,
+                &mut self.release_notes_cache,
+                &self.release_notes_text,
+            );
             ui.add_space(16.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 close = widgets::button(
@@ -964,9 +957,13 @@ mod tests {
     #[test]
     fn bundled_release_notes_are_markdown_for_the_current_version() {
         let notes = super::CURRENT_RELEASE_NOTES;
-        let expected_title = format!("# 🎨 Painty {}", env!("CARGO_PKG_VERSION"));
+        let expected_title = format!("# Painty {}", env!("CARGO_PKG_VERSION"));
         assert!(notes.starts_with(&expected_title));
-        assert!(notes.lines().any(|line| line.starts_with("- ")));
-        assert!(notes.contains("Editable `.painty` project files."));
+        assert!(notes.contains("**Editable projects**"));
+        assert!(notes.contains("**Drawing tools**"));
+        assert!(!notes.contains("📁"));
+        assert!(!notes.contains("🔎"));
+        assert!(!notes.contains("✏️"));
+        assert!(!notes.lines().any(|line| line.starts_with("- ")));
     }
 }

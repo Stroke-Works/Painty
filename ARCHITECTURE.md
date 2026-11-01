@@ -28,7 +28,7 @@ The main window starts at 1200 × 800 px when the monitor allows it, is capped a
 | `assets/` | Images, icons, flags and translations, embedded into the binary at compile time |
 | `assets/svg/` | Icons (dark and light versions) |
 | `assets/flags/` | Flags used by the language dropdown |
-| `assets/fonts/` | Inter fonts (regular and semibold) |
+| `assets/fonts/` | Inter fonts (regular and semibold); Windows Segoe UI Emoji is loaded from the system when available |
 | `assets/lang/` | Translations (`en.json`, `fr.json`, `es.json`, `de.json`, `it.json`) |
 | `dist/` | Installer output (ignored by Git) |
 | `target/` | Build output (ignored by Git) |
@@ -97,7 +97,7 @@ The toolbar's project menu opens and saves editable `.painty` files; Ctrl+O and 
 
 The update prompt is driven by the updater status and waits until no other dialog is visible. Each dialog is rendered through `dialog.rs`, which preserves its content while it fades out.
 
-Clicking the version in Settings opens the matching `assets/archive/vX.Y.Z.md` in a styled, scrollable CommonMark viewer. The update prompt instead shows the notes returned by GitHub for the available release.
+Clicking the version in Settings opens the matching `assets/archive/vX.Y.Z.md` in a scrollable CommonMark viewer styled directly on the dialog card. The update prompt instead shows the notes returned by GitHub for the available release.
 
 ## Export
 
