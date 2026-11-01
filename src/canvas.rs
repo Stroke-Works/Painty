@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use eframe::egui::{Color32, Painter, Pos2, Rect, Response, Sense, Stroke, Ui};
+use eframe::egui::{Color32, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, Ui};
 
 use crate::model::{Brush, Line, Tool};
 
@@ -381,10 +381,7 @@ fn draw_line(painter: &Painter, line: &Line) {
             painter.circle_filled(pts[0], radius, color);
         }
         n => {
-            let stroke = Stroke::new(line.width, color);
-            for pair in pts.windows(2) {
-                painter.line_segment([pair[0], pair[1]], stroke);
-            }
+            painter.add(connected_stroke(line));
             painter.circle_filled(pts[0], radius, color);
             painter.circle_filled(pts[n - 1], radius, color);
             for w in pts.windows(3) {
@@ -394,6 +391,10 @@ fn draw_line(painter: &Painter, line: &Line) {
             }
         }
     }
+}
+
+fn connected_stroke(line: &Line) -> Shape {
+    Shape::line(line.points.clone(), Stroke::new(line.width, line.color))
 }
 
 #[cfg(test)]
@@ -410,6 +411,20 @@ mod tests {
 
     fn segment(a: Pos2, b: Pos2) -> Line {
         Line::from_points(Color32::BLACK, 4.0, vec![a, b])
+    }
+
+    #[test]
+    fn stroke_is_rendered_as_one_connected_path() {
+        let line = Line::from_points(
+            Color32::BLACK,
+            4.0,
+            vec![pos2(0.0, 0.0), pos2(10.0, 0.0), pos2(10.0, 10.0)],
+        );
+
+        match connected_stroke(&line) {
+            Shape::Path(path) => assert_eq!(path.points, line.points),
+            _ => panic!("a stroke must be tessellated as a connected path"),
+        }
     }
 
     #[test]
