@@ -19,11 +19,11 @@ use crate::i18n::{t, tf};
 
 /// Latest release of the repository. The release must contain an asset named `painty.exe`
 /// and its checksum, `painty.exe.sha256`.
-const API_URL: &str = "https://api.github.com/repos/Stroke-Works/painty/releases/latest";
+const API_URL: &str = "https://api.github.com/repos/Stroke-Works/Painty/releases/latest";
 const ASSET_NAME: &str = "painty.exe";
 const CHECKSUM_ASSET_NAME: &str = "painty.exe.sha256";
 /// Downloads are only accepted from the releases of this repository.
-const DOWNLOAD_PREFIX: &str = "https://github.com/Stroke-Works/painty/releases/download/";
+const DOWNLOAD_PREFIX: &str = "https://github.com/Stroke-Works/Painty/releases/download/";
 /// Name given to the previous executable after replacement.
 const OLD_NAME: &str = "painty.old.exe";
 /// Name of the downloaded executable before it replaces the current one.
@@ -231,7 +231,7 @@ fn fetch_latest() -> Result<Option<Release>, String> {
     let url = asset_url(&json, ASSET_NAME).ok_or(t("error.no_asset"))?;
     let sha256_url = asset_url(&json, CHECKSUM_ASSET_NAME).ok_or(t("error.no_checksum"))?;
     // Never follow an address that does not come from this repository's releases.
-    if !url.starts_with(DOWNLOAD_PREFIX) || !sha256_url.starts_with(DOWNLOAD_PREFIX) {
+    if !is_allowed_download_url(&url) || !is_allowed_download_url(&sha256_url) {
         return Err(t("error.bad_url").to_owned());
     }
 
@@ -240,6 +240,10 @@ fn fetch_latest() -> Result<Option<Release>, String> {
         url,
         sha256_url,
     }))
+}
+
+fn is_allowed_download_url(url: &str) -> bool {
+    url.starts_with(DOWNLOAD_PREFIX)
 }
 
 /// Download address of the release asset called `name`.
@@ -529,6 +533,19 @@ mod tests {
         );
         assert_eq!(asset_url(&release, "painty.exe.sha256"), None);
         assert_eq!(asset_url(&serde_json::json!({}), "painty.exe"), None);
+    }
+
+    #[test]
+    fn release_download_urls_match_the_canonical_repository_name() {
+        assert!(is_allowed_download_url(
+            "https://github.com/Stroke-Works/Painty/releases/download/v0.2.3/painty.exe"
+        ));
+        assert!(!is_allowed_download_url(
+            "https://github.com/Stroke-Works/painty/releases/download/v0.2.3/painty.exe"
+        ));
+        assert!(!is_allowed_download_url(
+            "https://example.com/Stroke-Works/Painty/releases/download/v0.2.3/painty.exe"
+        ));
     }
 
     /// Writes a fake executable of `size` bytes with the given first bytes.
