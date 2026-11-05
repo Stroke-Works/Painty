@@ -1,16 +1,17 @@
-# 🎨 Painty 0.3.0
+# Painty 0.3.1
 
 ### What's New
 
-- Editable `.painty` project files 📁.
-- Canvas zoom and panning 🔎.
-- Line, rectangle and ellipse tools, with an optional fill ✏️.
-- An eyedropper and a customizable, persistent color palette 🎨.
-- Current release notes are available by clicking the version in Settings 📝.
-- Emoji and code sections in release notes are easier to read, and update prompts show the upcoming release notes ✨.
+**Editable projects** — Improved stability when saving and reopening `.painty` files.
 
-### 📦 Installation
+**Canvas navigation** — Smoother zooming and panning for more precise editing.
 
-Download `PaintySetup-0.3.0.exe` for a new installation.
+**Drawing tools** — Refined line, rectangle, and ellipse behavior for cleaner strokes.
+
+**Release notes** — Updated version notes and the update prompt for the 0.3.1 release.
+
+### Installation
+
+Download `PaintySetup-0.3.1.exe` for a new installation.
 
 Already have Painty installed? Update directly from **Settings → Check for updates**, or install the update when prompted at startup.
