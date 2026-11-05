@@ -1,16 +1,14 @@
-# Painty 0.3.1
+# 🎨 Painty 0.3.1
 
 ### What's New
 
-**Editable projects** — Improved stability when saving and reopening `.painty` files.
+- 📁 Improved stability when saving and reopening `.painty` files.
+- 🔎 Smoother zooming and panning for more precise editing.
+- ✏️ Refined line, rectangle, and ellipse behavior for cleaner strokes.
+- 📝 Updated release notes and version prompts for the current release.
+- ✨ Polished installer metadata and packaging for the 0.3.1 update.
 
-**Canvas navigation** — Smoother zooming and panning for more precise editing.
-
-**Drawing tools** — Refined line, rectangle, and ellipse behavior for cleaner strokes.
-
-**Release notes** — Updated version notes and the update prompt for the 0.3.1 release.
-
-### Installation
+### 📦 Installation
 
 Download `PaintySetup-0.3.1.exe` for a new installation.
 
