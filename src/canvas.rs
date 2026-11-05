@@ -265,17 +265,20 @@ impl Canvas {
     /// Brush: draws a smooth stroke while dragging, or a single dot on click.
     fn handle_brush(&mut self, response: &Response, color: Color32, width: f32, dt: f32) {
         if response.drag_started() {
-            self.current = Some(Line::new(color, width));
-            self.smooth_pos = response
-                .interact_pointer_pos()
-                .map(|p| self.to_world(p, response.rect));
+            let mut line = Line::new(color, width);
+            if let Some(pos) = response.interact_pointer_pos() {
+                let p = self.to_world(pos, response.rect);
+                push_brush_point(&mut line, p);
+                self.smooth_pos = Some(p);
+            }
+            self.current = Some(line);
         }
 
         if response.dragged() {
             if let Some(target) = response.interact_pointer_pos() {
                 let p = self.smooth(self.to_world(target, response.rect), dt);
                 if let Some(line) = self.current.as_mut() {
-                    line.push(p);
+                    push_brush_point(line, p);
                 }
             }
         }
@@ -284,7 +287,8 @@ impl Canvas {
             if let Some(mut line) = self.current.take() {
                 // Finish at the actual pointer, not the lagging smoothed point.
                 if let Some(end) = response.interact_pointer_pos() {
-                    line.push(self.to_world(end, response.rect));
+                    let end = self.to_world(end, response.rect);
+                    push_brush_point(&mut line, end);
                 }
                 if !line.points.is_empty() {
                     line.finish();
@@ -295,7 +299,7 @@ impl Canvas {
         }
 
         // Single click without dragging: place one point.
-        if response.clicked() {
+        if response.clicked() && self.current.is_none() {
             if let Some(pos) = response.interact_pointer_pos() {
                 let mut line = Line::new(color, width);
                 line.push(self.to_world(pos, response.rect));
@@ -452,6 +456,16 @@ fn touches(line: &Line, p: Pos2, radius: f32) -> bool {
             .windows(2)
             .any(|w| disc_interval(w[0], w[1], p, reach).is_some()),
     }
+}
+
+fn push_brush_point(line: &mut Line, point: Pos2) {
+    let min_step = (line.width * 0.1).max(1.0);
+    if let Some(last) = line.points.last() {
+        if last.distance(point) < min_step {
+            return;
+        }
+    }
+    line.points.push(point);
 }
 
 fn item_contains(line: &Line, point: Pos2, reach: f32) -> bool {
@@ -612,31 +626,38 @@ fn draw_line(painter: &Painter, line: &Line, origin: Pos2, zoom: f32) {
             painter.add(Shape::ellipse_stroke(center, radius, stroke));
         }
         _ => {
-            let points = line
-                .outline_points()
-                .into_iter()
-                .map(|point| origin + point.to_vec2() * zoom)
-                .collect::<Vec<_>>();
+            let to_screen = |point: Pos2| origin + point.to_vec2() * zoom;
+            let points: Vec<Pos2> = if line.geometry == Geometry::Freehand {
+                line.points.iter().map(|p| to_screen(*p)).collect()
+            } else {
+                line.outline_points().into_iter().map(to_screen).collect()
+            };
             if points.len() == 1 {
                 painter.circle_filled(points[0], width * 0.5, color);
             } else {
-                painter.add(connected_stroke(&points, width, color));
+                let radius = width * 0.5;
+                let first = points[0];
+                let last = points[points.len() - 1];
+                let joints: Vec<Pos2> = points
+                    .windows(3)
+                    .filter(|w| needs_round_joint(w[0], w[1], w[2], radius))
+                    .map(|w| w[1])
+                    .collect();
+                painter.add(connected_stroke(points, width, color));
                 if line.geometry == Geometry::Freehand || line.geometry == Geometry::Line {
-                    painter.circle_filled(points[0], width * 0.5, color);
-                    painter.circle_filled(*points.last().unwrap(), width * 0.5, color);
+                    painter.circle_filled(first, radius, color);
+                    painter.circle_filled(last, radius, color);
                 }
-                for w in points.windows(3) {
-                    if needs_round_joint(w[0], w[1], w[2], width * 0.5) {
-                        painter.circle_filled(w[1], width * 0.5, color);
-                    }
+                for joint in joints {
+                    painter.circle_filled(joint, radius, color);
                 }
             }
         }
     }
 }
 
-fn connected_stroke(points: &[Pos2], width: f32, color: Color32) -> Shape {
-    Shape::line(points.to_vec(), Stroke::new(width, color))
+fn connected_stroke(points: Vec<Pos2>, width: f32, color: Color32) -> Shape {
+    Shape::line(points, Stroke::new(width, color))
 }
 
 #[cfg(test)]
@@ -663,7 +684,7 @@ mod tests {
             vec![pos2(0.0, 0.0), pos2(10.0, 0.0), pos2(10.0, 10.0)],
         );
 
-        match connected_stroke(&line.points, line.width, line.color) {
+        match connected_stroke(line.points.clone(), line.width, line.color) {
             Shape::Path(path) => assert_eq!(path.points, line.points),
             _ => panic!("a stroke must be tessellated as a connected path"),
         }
@@ -765,6 +786,18 @@ mod tests {
         assert_eq!(canvas.lines().len(), 1);
         let end = canvas.lines()[0].points.last().unwrap().x;
         assert!((end - 93.0).abs() < 0.01, "{end}");
+    }
+
+    #[test]
+    fn brush_keeps_its_initial_anchor_point() {
+        let mut line = Line::new(Color32::BLACK, 6.0);
+
+        push_brush_point(&mut line, pos2(10.0, 10.0));
+        push_brush_point(&mut line, pos2(10.1, 10.1));
+        assert_eq!(line.points.len(), 1);
+
+        push_brush_point(&mut line, pos2(20.0, 10.0));
+        assert_eq!(line.points.len(), 2);
     }
 
     #[test]
