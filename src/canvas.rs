@@ -280,7 +280,8 @@ impl Canvas {
             if let Some(target) = response.interact_pointer_pos() {
                 let p = self.to_world(target, response.rect);
                 if let Some(line) = self.current.as_mut() {
-                    push_brush_point(line, p);
+                    let from = line.points.last().copied().unwrap_or(p);
+                    add_brush_segment(line, from, p, width);
                 }
             }
         }
@@ -470,8 +471,22 @@ fn push_brush_point(line: &mut Line, point: Pos2) {
     line.points.push(point);
 }
 
+fn add_brush_segment(line: &mut Line, from: Pos2, to: Pos2, width: f32) {
+    let min_step = (width * 0.12).max(1.0);
+    let distance = from.distance(to);
+    let steps = (distance / min_step).ceil().max(1.0) as usize;
+    for i in 1..=steps {
+        let t = i as f32 / steps as f32;
+        push_brush_point(line, from + (to - from) * t);
+    }
+}
+
 fn finish_brush_to_pointer(line: &mut Line, pointer: Pos2) {
-    if line.points.last().is_some_and(|last| last.distance(pointer) <= f32::EPSILON) {
+    if line
+        .points
+        .last()
+        .is_some_and(|last| last.distance(pointer) <= f32::EPSILON)
+    {
         return;
     }
     line.points.push(pointer);
@@ -830,6 +845,17 @@ mod tests {
 
         assert_eq!(line.points.last().copied(), Some(pos2(0.5, 0.0)));
         assert_eq!(line.points.len(), 2);
+    }
+
+    #[test]
+    fn brush_subdivides_fast_segments_for_a_cleaner_path() {
+        let mut line = Line::new(Color32::BLACK, 6.0);
+        line.points.push(pos2(0.0, 0.0));
+
+        add_brush_segment(&mut line, pos2(0.0, 0.0), pos2(25.0, 0.0), 6.0);
+
+        assert!(line.points.len() > 3);
+        assert_eq!(line.points.last().copied(), Some(pos2(25.0, 0.0)));
     }
 
     #[test]
