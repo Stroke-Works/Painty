@@ -472,11 +472,10 @@ fn push_brush_point(line: &mut Line, point: Pos2) {
 }
 
 fn finish_brush_to_pointer(line: &mut Line, pointer: Pos2) {
-    let min_step = (line.width * 0.1).max(1.0);
-    match line.points.last() {
-        Some(last) if last.distance(pointer) < min_step => {}
-        _ => line.points.push(pointer),
+    if line.points.last().is_some_and(|last| last.distance(pointer) <= f32::EPSILON) {
+        return;
     }
+    line.points.push(pointer);
 }
 
 fn item_contains(line: &Line, point: Pos2, reach: f32) -> bool {
@@ -821,6 +820,17 @@ mod tests {
 
         assert_eq!(line.points.last().copied(), Some(pos2(100.0, 0.0)));
         assert_eq!(line.points.len(), 3);
+    }
+
+    #[test]
+    fn brush_final_point_is_added_even_when_close_to_the_previous_point() {
+        let mut line = Line::new(Color32::BLACK, 6.0);
+        line.points.push(pos2(0.0, 0.0));
+
+        finish_brush_to_pointer(&mut line, pos2(0.5, 0.0));
+
+        assert_eq!(line.points.last().copied(), Some(pos2(0.5, 0.0)));
+        assert_eq!(line.points.len(), 2);
     }
 
     #[test]
