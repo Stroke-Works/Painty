@@ -6,7 +6,6 @@
 - 🔎 Smoother zooming and panning for more precise editing.
 - ✏️ Refined line, rectangle, and ellipse behavior for cleaner strokes.
 - 📝 Updated release notes and version prompts for the current release.
-- ✨ Polished installer metadata and packaging for the 0.3.1 update.
 
 ### 📦 Installation
 

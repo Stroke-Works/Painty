@@ -58,7 +58,7 @@ Icons and flags are loaded using `egui::include_image!`, so they are embedded in
 | `app.rs` | Main application state (`Painty`). Handles keyboard shortcuts, project and export dialogs, the currently open dialog (`Modal`) and frame rendering. |
 | `canvas.rs` | Drawing area. Smooths pointer movement, renders strokes and shapes, handles zoom/pan and color picking, erases strokes or shapes, and maintains undo/redo history. |
 | `model.rs` | Core data types: `Tool`, `Geometry`, `Line` (a stroke or shape) and `Brush` (current settings). |
-| `project.rs` | Reads and writes versioned `.painty` JSON projects, with limits on file size, strokes and points. |
+| `project.rs` | Reads and writes versioned `.painty` projects (compact binary with a SHA-256 checksum; old JSON projects are still read), with limits on file size, strokes and points. |
 | `toolbar.rs` | Floating toolbar at the bottom of the window. Its elements fold in and out with animations to fit the window width; it also contains tool, project and palette controls. |
 | `widgets.rs` | Custom UI controls: text buttons, icon buttons, color swatches, size slider, segmented controls and the language dropdown. Focus rings are drawn only for keyboard navigation. |
 | `dialog.rs` | Modal popup system: dimmed background, slide-in animation and scrolling when the window is too short. Popups are measured again once a window resize has settled. |
@@ -89,7 +89,7 @@ Widths are measured every frame, so translations of any length fit. With the era
 
 ## Projects
 
-The toolbar's project menu opens and saves editable `.painty` files; Ctrl+O and Ctrl+S provide the same actions. The installer registers Painty as an Open With option for `.painty` files, and `main.rs` passes a file opened by Windows to `project.rs` at startup. A project stores its versioned JSON document, drawing geometry, palette and current brush settings. Opening a project with an existing drawing asks for confirmation. Project files are limited to 64 MiB, 100,000 strokes and 2,000,000 points. PNG/JPEG export remains separate (Ctrl+Shift+S).
+The toolbar's project menu opens and saves editable `.painty` files; Ctrl+O and Ctrl+S provide the same actions. The installer registers Painty as an Open With option for `.painty` files, and `main.rs` passes a file opened by Windows to `project.rs` at startup. A project stores its drawing geometry, palette and current brush settings in a versioned binary file (format 2); saving is atomic, and old JSON projects (format 1) still open and are rewritten in format 2 on the next save. Opening a project with an existing drawing asks for confirmation. Project files are limited to 64 MiB, 100,000 strokes and 2,000,000 points. PNG/JPEG export remains separate (Ctrl+Shift+S).
 
 ## Dialogs
 

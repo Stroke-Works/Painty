@@ -18,7 +18,7 @@ cargo test
 
 ## Rules
 
-- Code, comments, commit messages and release notes are in English. The chat can be in French.
+- Keep code, comments, commit messages, and release notes consistent with the project's conventions.
 - Interface text goes in `assets/lang/*.json`, never in the code. Every language file must have the same keys and `{placeholders}` as `en.json`.
 - Keep the updater strict: the SHA-256 check, the `MZ` and size checks, and the `DOWNLOAD_PREFIX` check in `updater.rs` must stay. Do not set `panic = "abort"`: the updater detects a worker thread that panicked.
 - Do not enable ureq's `json` feature; responses are parsed with `serde_json`.
@@ -31,7 +31,7 @@ cargo test
 - Be brief. Give only what changed.
 - When changing a file, give the complete file, not a fragment, unless asked otherwise.
 - `grep` and `gh` may not exist on the developer's machine: give PowerShell equivalents (`Select-String`, the GitHub website).
-- Always give the git commands, with several small commits to keep a readable history. Commit messages are in English and start with a conventional prefix (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `ci:`).
+- Always give the git commands, with several small commits to keep a readable history. Commit messages should use a conventional prefix (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `ci:`).
 
 ## Releasing
 

@@ -264,6 +264,8 @@ impl Canvas {
 
     /// Brush: draws a smooth stroke while dragging, or a single dot on click.
     fn handle_brush(&mut self, response: &Response, color: Color32, width: f32, dt: f32) {
+        let mut just_released = false;
+
         if response.drag_started() {
             let mut line = Line::new(color, width);
             if let Some(pos) = response.interact_pointer_pos() {
@@ -288,7 +290,7 @@ impl Canvas {
                 // Finish at the actual pointer, not the lagging smoothed point.
                 if let Some(end) = response.interact_pointer_pos() {
                     let end = self.to_world(end, response.rect);
-                    push_brush_point(&mut line, end);
+                    finish_brush_to_pointer(&mut line, end);
                 }
                 if !line.points.is_empty() {
                     line.finish();
@@ -296,10 +298,11 @@ impl Canvas {
                 }
             }
             self.smooth_pos = None;
+            just_released = true;
         }
 
         // Single click without dragging: place one point.
-        if response.clicked() && self.current.is_none() {
+        if response.clicked() && !just_released && self.current.is_none() {
             if let Some(pos) = response.interact_pointer_pos() {
                 let mut line = Line::new(color, width);
                 line.push(self.to_world(pos, response.rect));
@@ -466,6 +469,14 @@ fn push_brush_point(line: &mut Line, point: Pos2) {
         }
     }
     line.points.push(point);
+}
+
+fn finish_brush_to_pointer(line: &mut Line, pointer: Pos2) {
+    let min_step = (line.width * 0.1).max(1.0);
+    match line.points.last() {
+        Some(last) if last.distance(pointer) < min_step => {}
+        _ => line.points.push(pointer),
+    }
 }
 
 fn item_contains(line: &Line, point: Pos2, reach: f32) -> bool {
@@ -798,6 +809,18 @@ mod tests {
 
         push_brush_point(&mut line, pos2(20.0, 10.0));
         assert_eq!(line.points.len(), 2);
+    }
+
+    #[test]
+    fn brush_finishes_at_the_pointer_when_released() {
+        let mut line = Line::new(Color32::BLACK, 6.0);
+        line.points.push(pos2(0.0, 0.0));
+        line.points.push(pos2(40.0, 0.0));
+
+        finish_brush_to_pointer(&mut line, pos2(100.0, 0.0));
+
+        assert_eq!(line.points.last().copied(), Some(pos2(100.0, 0.0)));
+        assert_eq!(line.points.len(), 3);
     }
 
     #[test]
