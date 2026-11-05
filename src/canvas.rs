@@ -262,8 +262,8 @@ impl Canvas {
         self.lines.push(Arc::new(line));
     }
 
-    /// Brush: draws a smooth stroke while dragging, or a single dot on click.
-    fn handle_brush(&mut self, response: &Response, color: Color32, width: f32, dt: f32) {
+    /// Brush: follows the pointer immediately while dragging, or places a single dot on click.
+    fn handle_brush(&mut self, response: &Response, color: Color32, width: f32, _dt: f32) {
         let mut just_released = false;
 
         if response.drag_started() {
@@ -271,14 +271,14 @@ impl Canvas {
             if let Some(pos) = response.interact_pointer_pos() {
                 let p = self.to_world(pos, response.rect);
                 push_brush_point(&mut line, p);
-                self.smooth_pos = Some(p);
             }
             self.current = Some(line);
+            self.smooth_pos = None;
         }
 
         if response.dragged() {
             if let Some(target) = response.interact_pointer_pos() {
-                let p = self.smooth(self.to_world(target, response.rect), dt);
+                let p = self.to_world(target, response.rect);
                 if let Some(line) = self.current.as_mut() {
                     push_brush_point(line, p);
                 }
@@ -287,7 +287,6 @@ impl Canvas {
 
         if response.drag_stopped() {
             if let Some(mut line) = self.current.take() {
-                // Finish at the actual pointer, not the lagging smoothed point.
                 if let Some(end) = response.interact_pointer_pos() {
                     let end = self.to_world(end, response.rect);
                     finish_brush_to_pointer(&mut line, end);
