@@ -1,23 +1,20 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use eframe::egui::{
-    Color32, Key, Painter, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke, Ui, Vec2,
-};
+use eframe::egui::{Color32, Key, PointerButton, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2};
 
+use crate::geometry::{contains, split_around, touches};
 use crate::model::{Brush, Geometry, Line, Tool};
+use crate::render::Pen;
+use crate::smooth::Smoother;
 
 /// Maximum number of undo steps kept in memory.
 const HISTORY_LIMIT: usize = 100;
-/// Fraction of the remaining distance to the pointer kept per frame at 60 fps.
-/// Smoothing is time-based, so strokes feel the same at any refresh rate.
-/// Lower it for a more direct feel, raise it for smoother strokes.
+/// Fraction of the remaining distance to the pointer kept per frame at 60 fps (eraser).
+/// Smoothing is time-based, so it feels the same at any refresh rate.
 const SMOOTHING: f32 = 0.85;
 /// Eraser step, as a fraction of the eraser radius. Smaller = no gaps, slower.
 const ERASE_STEP: f32 = 0.25;
-/// A bend gets a round disc only when the flat joint would leave a notch deeper
-/// than this, in points. Below it the difference cannot be seen.
-const JOINT_DEPTH: f32 = 0.15;
 
 /// Strokes are shared with `Arc`, so a history snapshot only copies pointers.
 type Lines = Vec<Arc<Line>>;
@@ -26,9 +23,11 @@ type Lines = Vec<Arc<Line>>;
 pub struct Canvas {
     lines: Lines,
     current: Option<Line>,
+    /// Builds the stroke being drawn from the raw pointer positions.
+    smoother: Option<Smoother>,
     undo: VecDeque<Lines>,
     redo: Vec<Lines>,
-    /// Smoothed pointer position used while drawing or erasing.
+    /// Smoothed pointer position used while erasing.
     smooth_pos: Option<Pos2>,
     /// Last erased position during a drag, so fast drags leave no gaps.
     last_erase: Option<Pos2>,
@@ -47,6 +46,7 @@ impl Default for Canvas {
         Self {
             lines: Vec::new(),
             current: None,
+            smoother: None,
             undo: VecDeque::new(),
             redo: Vec::new(),
             smooth_pos: None,
@@ -82,25 +82,28 @@ impl Canvas {
     /// Removes everything. This cannot be undone.
     pub fn clear(&mut self) {
         self.lines.clear();
-        self.current = None;
+        self.reset_gesture();
         self.undo.clear();
         self.redo.clear();
-        self.smooth_pos = None;
-        self.last_erase = None;
-        self.eraser_changed = false;
     }
 
-    pub fn replace_lines(&mut self, lines: Vec<Arc<Line>>) {
+    pub fn replace_lines(&mut self, lines: Lines) {
         self.lines = lines;
-        self.current = None;
+        self.reset_gesture();
         self.undo.clear();
         self.redo.clear();
-        self.smooth_pos = None;
-        self.last_erase = None;
-        self.eraser_changed = false;
         self.zoom = 1.0;
         self.pan = Vec2::ZERO;
         self.pan_active = false;
+    }
+
+    /// Forgets the stroke and the eraser gesture in progress.
+    fn reset_gesture(&mut self) {
+        self.current = None;
+        self.smoother = None;
+        self.smooth_pos = None;
+        self.last_erase = None;
+        self.eraser_changed = false;
     }
 
     pub fn is_empty(&self) -> bool {
@@ -131,13 +134,13 @@ impl Canvas {
         self.handle_view(&response, ui);
         let radius = brush.width / 2.0;
         let erasing = brush.tool == Tool::Eraser;
-        // Frame duration, capped so a stalled frame does not make the stroke jump.
-        let dt = ui.input(|i| i.stable_dt).clamp(1.0 / 1000.0, 0.1);
 
         if self.is_panning(ui) {
             self.current = None;
-            self.smooth_pos = None;
+            self.smoother = None;
         } else if erasing {
+            // Frame duration, capped so a stalled frame does not make the eraser jump.
+            let dt = ui.input(|i| i.stable_dt).clamp(1.0 / 1000.0, 0.1);
             self.handle_eraser(&response, radius, dt);
         } else if matches!(brush.tool, Tool::Line | Tool::Rectangle | Tool::Ellipse) {
             self.handle_shape(&response, brush);
@@ -151,19 +154,21 @@ impl Canvas {
                 }
             }
         } else {
-            self.handle_brush(&response, brush.color, brush.width, dt);
+            self.handle_brush(&response, brush.color, brush.width);
         }
 
         // Only strokes that touch the visible area are drawn.
         let clip = painter.clip_rect();
+        let mut pen = Pen::new(&painter, response.rect.min + self.pan, self.zoom);
         for line in &self.lines {
             if self.screen_bounds(line, response.rect).intersects(clip) {
-                draw_line(&painter, line, response.rect.min + self.pan, self.zoom);
+                pen.draw(line);
             }
         }
         if let Some(line) = &self.current {
-            draw_line(&painter, line, response.rect.min + self.pan, self.zoom);
+            pen.draw_fresh(line);
         }
+        pen.finish();
 
         // Outline of the eraser under the pointer.
         if erasing {
@@ -204,8 +209,7 @@ impl Canvas {
         if response.hovered() && pan_input {
             self.pan_active = true;
         }
-        let panning = self.pan_active;
-        if panning {
+        if self.pan_active {
             self.pan += pointer_delta;
         }
         if !pan_input {
@@ -234,9 +238,8 @@ impl Canvas {
         Rect::from_min_max(min, max)
     }
 
-    /// Moves the smoothed position toward the pointer and returns it.
-    /// `dt` is the frame duration in seconds; the factor is normalized to 60 fps
-    /// so the stroke behaves the same at any refresh rate.
+    /// Moves the smoothed eraser position toward the pointer and returns it.
+    /// `dt` is the frame duration in seconds; the factor is normalized to 60 fps.
     fn smooth(&mut self, target: Pos2, dt: f32) -> Pos2 {
         let kept = SMOOTHING.powf(dt * 60.0);
         let next = match self.smooth_pos {
@@ -262,52 +265,55 @@ impl Canvas {
         self.lines.push(Arc::new(line));
     }
 
-    /// Brush: follows the pointer immediately while dragging, or places a single dot on click.
-    fn handle_brush(&mut self, response: &Response, color: Color32, width: f32, _dt: f32) {
-        let mut just_released = false;
-
+    /// Brush: the stroke follows the pointer while dragging, or a single dot is placed on click.
+    fn handle_brush(&mut self, response: &Response, color: Color32, width: f32) {
         if response.drag_started() {
-            let mut line = Line::new(color, width);
             if let Some(pos) = response.interact_pointer_pos() {
                 let p = self.to_world(pos, response.rect);
-                push_brush_point(&mut line, p);
+                self.smoother = Some(Smoother::new(p, brush_step(width)));
+                self.current = Some(Line::new(color, width));
             }
-            self.current = Some(line);
-            self.smooth_pos = None;
         }
 
         if response.dragged() {
-            if let Some(target) = response.interact_pointer_pos() {
-                let p = self.to_world(target, response.rect);
-                if let Some(line) = self.current.as_mut() {
-                    let from = line.points.last().copied().unwrap_or(p);
-                    add_brush_segment(line, from, p, width);
+            if let Some(pos) = response.interact_pointer_pos() {
+                let p = self.to_world(pos, response.rect);
+                if let Some(smoother) = self.smoother.as_mut() {
+                    smoother.add(p);
                 }
+            }
+            if let (Some(smoother), Some(line)) = (&self.smoother, self.current.as_mut()) {
+                smoother.write_to(&mut line.points);
+                line.finish();
             }
         }
 
         if response.drag_stopped() {
             if let Some(mut line) = self.current.take() {
-                if let Some(end) = response.interact_pointer_pos() {
-                    let end = self.to_world(end, response.rect);
-                    finish_brush_to_pointer(&mut line, end);
-                }
-                if !line.points.is_empty() {
+                let end = response
+                    .interact_pointer_pos()
+                    .map(|pos| self.to_world(pos, response.rect))
+                    .or_else(|| line.points.last().copied());
+                if let (Some(end), Some(smoother)) = (end, self.smoother.take()) {
+                    line.points = smoother.finish(end);
                     line.finish();
                     self.commit(line);
                 }
             }
-            self.smooth_pos = None;
-            just_released = true;
+            self.smoother = None;
         }
 
-        // Single click without dragging: place one point.
-        if response.clicked() && !just_released && self.current.is_none() {
+        // Single click without dragging: place one dot.
+        if response.clicked() && self.current.is_none() {
             if let Some(pos) = response.interact_pointer_pos() {
-                let mut line = Line::new(color, width);
-                line.push(self.to_world(pos, response.rect));
-                line.finish();
-                self.commit(line);
+                let dot = Line::build(
+                    Geometry::Freehand,
+                    color,
+                    width,
+                    false,
+                    vec![self.to_world(pos, response.rect)],
+                );
+                self.commit(dot);
             }
         }
     }
@@ -386,7 +392,6 @@ impl Canvas {
                 let from = self.last_erase.unwrap_or(pos);
                 self.erase_between(from, pos, radius);
             }
-
             self.last_erase = None;
             self.smooth_pos = None;
             self.eraser_changed = false;
@@ -397,7 +402,7 @@ impl Canvas {
         self.lines
             .iter()
             .rev()
-            .find(|line| item_contains(line, point, line.width * 0.5))
+            .find(|line| contains(line, point, line.width * 0.5))
             .map(|line| line.color)
     }
 
@@ -443,245 +448,9 @@ impl Canvas {
     }
 }
 
-/// True when the eraser disc of the given `radius` at `p` overlaps `line`.
-fn touches(line: &Line, p: Pos2, radius: f32) -> bool {
-    let reach = radius + line.width * 0.5;
-    if !line.bounds.expand(reach).contains(p) {
-        return false;
-    }
-    if line.geometry != Geometry::Freehand {
-        return item_contains(line, p, reach);
-    }
-    match line.points.as_slice() {
-        [] => false,
-        [only] => only.distance(p) <= reach,
-        pts => pts
-            .windows(2)
-            .any(|w| disc_interval(w[0], w[1], p, reach).is_some()),
-    }
-}
-
-fn push_brush_point(line: &mut Line, point: Pos2) {
-    let min_step = (line.width * 0.1).max(1.0);
-    if let Some(last) = line.points.last() {
-        if last.distance(point) < min_step {
-            return;
-        }
-    }
-    line.points.push(point);
-}
-
-fn add_brush_segment(line: &mut Line, from: Pos2, to: Pos2, width: f32) {
-    let min_step = (width * 0.12).max(1.0);
-    let distance = from.distance(to);
-    let steps = (distance / min_step).ceil().max(1.0) as usize;
-    for i in 1..=steps {
-        let t = i as f32 / steps as f32;
-        push_brush_point(line, from + (to - from) * t);
-    }
-}
-
-fn finish_brush_to_pointer(line: &mut Line, pointer: Pos2) {
-    if line
-        .points
-        .last()
-        .is_some_and(|last| last.distance(pointer) <= f32::EPSILON)
-    {
-        return;
-    }
-    line.points.push(pointer);
-}
-
-fn item_contains(line: &Line, point: Pos2, reach: f32) -> bool {
-    let Some((a, b)) = line.points.as_slice().first().zip(line.points.last()) else {
-        return false;
-    };
-    if line.filled {
-        match line.geometry {
-            Geometry::Rectangle => return Rect::from_two_pos(*a, *b).contains(point),
-            Geometry::Ellipse => {
-                let center = a.lerp(*b, 0.5);
-                let rx = (b.x - a.x).abs() * 0.5;
-                let ry = (b.y - a.y).abs() * 0.5;
-                if rx > 0.0 && ry > 0.0 {
-                    let x = (point.x - center.x) / rx;
-                    let y = (point.y - center.y) / ry;
-                    if x * x + y * y <= 1.0 {
-                        return true;
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    let points = line.outline_points();
-    points
-        .windows(2)
-        .any(|pair| distance_to_segment(point, pair[0], pair[1]) <= reach)
-}
-
-fn distance_to_segment(point: Pos2, a: Pos2, b: Pos2) -> f32 {
-    let ab = b - a;
-    let length_sq = ab.length_sq();
-    if length_sq <= f32::EPSILON {
-        point.distance(a)
-    } else {
-        point.distance(a + ab * ((point - a).dot(ab) / length_sq).clamp(0.0, 1.0))
-    }
-}
-
-/// Cuts `line` where it crosses the disc of radius `reach` centred on `p`.
-/// Returns the pieces that remain, in order (possibly none).
-fn split_around(line: &Line, p: Pos2, reach: f32) -> Vec<Line> {
-    let mut runs: Vec<Vec<Pos2>> = Vec::new();
-
-    match line.points.as_slice() {
-        [] => {}
-        [only] => {
-            if only.distance(p) > reach {
-                runs.push(vec![*only]);
-            }
-        }
-        pts => {
-            let mut run: Vec<Pos2> = Vec::new();
-            for w in pts.windows(2) {
-                let (a, b) = (w[0], w[1]);
-                match disc_interval(a, b, p, reach) {
-                    // Segment untouched: it joins the current run.
-                    None => {
-                        if run.is_empty() {
-                            run.push(a);
-                        }
-                        run.push(b);
-                    }
-                    // Segment crosses the disc between t0 and t1: keep what is outside.
-                    Some((t0, t1)) => {
-                        if t0 > 0.0 {
-                            if run.is_empty() {
-                                run.push(a);
-                            }
-                            run.push(a.lerp(b, t0));
-                        }
-                        if !run.is_empty() {
-                            runs.push(std::mem::take(&mut run));
-                        }
-                        if t1 < 1.0 {
-                            run.push(a.lerp(b, t1));
-                            run.push(b);
-                        }
-                    }
-                }
-            }
-            if !run.is_empty() {
-                runs.push(run);
-            }
-        }
-    }
-
-    runs.into_iter()
-        .map(|pts| Line::from_points(line.color, line.width, pts))
-        .collect()
-}
-
-/// Part of the segment `a`-`b` inside the disc of radius `r` centred on `center`,
-/// as parameters from 0.0 (at `a`) to 1.0 (at `b`). `None` if it never enters it.
-fn disc_interval(a: Pos2, b: Pos2, center: Pos2, r: f32) -> Option<(f32, f32)> {
-    let d = b - a;
-    let f = a - center;
-    let qa = d.dot(d);
-    let qc = f.dot(f) - r * r;
-
-    // Degenerate segment: a single point.
-    if qa <= f32::EPSILON {
-        return (qc <= 0.0).then_some((0.0, 1.0));
-    }
-
-    let qb = 2.0 * f.dot(d);
-    let disc = qb * qb - 4.0 * qa * qc;
-    if disc < 0.0 {
-        return None;
-    }
-    let root = disc.sqrt();
-    let t0 = (-qb - root) / (2.0 * qa);
-    let t1 = (-qb + root) / (2.0 * qa);
-    if t1 < 0.0 || t0 > 1.0 {
-        return None;
-    }
-    Some((t0.max(0.0), t1.min(1.0)))
-}
-
-/// True when the bend at `p` is sharp enough for a flat joint to show a notch.
-/// The notch depth is `radius * (1 - cos(angle / 2))`, `angle` being the turn.
-fn needs_round_joint(prev: Pos2, p: Pos2, next: Pos2, radius: f32) -> bool {
-    let a = p - prev;
-    let b = next - p;
-    let (la, lb) = (a.length(), b.length());
-    if la <= f32::EPSILON || lb <= f32::EPSILON {
-        return false;
-    }
-    let cos = (a.dot(b) / (la * lb)).clamp(-1.0, 1.0);
-    radius * (1.0 - ((1.0 + cos) * 0.5).sqrt()) > JOINT_DEPTH
-}
-
-fn draw_line(painter: &Painter, line: &Line, origin: Pos2, zoom: f32) {
-    let color = line.color;
-    let width = line.width * zoom;
-    let stroke = Stroke::new(width, color);
-    match (line.geometry, line.points.as_slice()) {
-        (_, []) => {}
-        (Geometry::Rectangle, [a, b]) => {
-            let a = origin + a.to_vec2() * zoom;
-            let b = origin + b.to_vec2() * zoom;
-            let rect = Rect::from_two_pos(a, b);
-            if line.filled {
-                painter.rect_filled(rect, 0.0, color);
-            }
-            painter.rect_stroke(rect, 0.0, stroke);
-        }
-        (Geometry::Ellipse, [a, b]) => {
-            let a = origin + a.to_vec2() * zoom;
-            let b = origin + b.to_vec2() * zoom;
-            let rect = Rect::from_two_pos(a, b);
-            let center = rect.center();
-            let radius = rect.size() * 0.5;
-            if line.filled {
-                painter.add(Shape::ellipse_filled(center, radius, color));
-            }
-            painter.add(Shape::ellipse_stroke(center, radius, stroke));
-        }
-        _ => {
-            let to_screen = |point: Pos2| origin + point.to_vec2() * zoom;
-            let points: Vec<Pos2> = if line.geometry == Geometry::Freehand {
-                line.points.iter().map(|p| to_screen(*p)).collect()
-            } else {
-                line.outline_points().into_iter().map(to_screen).collect()
-            };
-            if points.len() == 1 {
-                painter.circle_filled(points[0], width * 0.5, color);
-            } else {
-                let radius = width * 0.5;
-                let first = points[0];
-                let last = points[points.len() - 1];
-                let joints: Vec<Pos2> = points
-                    .windows(3)
-                    .filter(|w| needs_round_joint(w[0], w[1], w[2], radius))
-                    .map(|w| w[1])
-                    .collect();
-                painter.add(connected_stroke(points, width, color));
-                if line.geometry == Geometry::Freehand || line.geometry == Geometry::Line {
-                    painter.circle_filled(first, radius, color);
-                    painter.circle_filled(last, radius, color);
-                }
-                for joint in joints {
-                    painter.circle_filled(joint, radius, color);
-                }
-            }
-        }
-    }
-}
-
-fn connected_stroke(points: Vec<Pos2>, width: f32, color: Color32) -> Shape {
-    Shape::line(points, Stroke::new(width, color))
+/// Smallest move of the pointer, in drawing units, that changes a brush stroke.
+fn brush_step(width: f32) -> f32 {
+    (width * 0.05).max(0.5)
 }
 
 #[cfg(test)]
@@ -690,48 +459,21 @@ mod tests {
     use eframe::egui::pos2;
 
     fn dot(at: Pos2) -> Line {
-        let mut line = Line::new(Color32::BLACK, 4.0);
-        line.push(at);
-        line.finish();
-        line
+        Line::build(Geometry::Freehand, Color32::BLACK, 4.0, false, vec![at])
     }
 
     fn segment(a: Pos2, b: Pos2) -> Line {
         Line::from_points(Color32::BLACK, 4.0, vec![a, b])
     }
 
-    #[test]
-    fn stroke_is_rendered_as_one_connected_path() {
-        let line = Line::from_points(
-            Color32::BLACK,
-            4.0,
-            vec![pos2(0.0, 0.0), pos2(10.0, 0.0), pos2(10.0, 10.0)],
-        );
-
-        match connected_stroke(line.points.clone(), line.width, line.color) {
-            Shape::Path(path) => assert_eq!(path.points, line.points),
-            _ => panic!("a stroke must be tessellated as a connected path"),
-        }
-    }
-
-    #[test]
-    fn filled_shape_is_sampled_inside_its_bounds_and_erasable() {
-        let shape = Line::shape(
-            Geometry::Rectangle,
-            Color32::RED,
-            4.0,
-            true,
-            pos2(10.0, 10.0),
-            pos2(40.0, 40.0),
-        );
-        assert!(item_contains(&shape, pos2(20.0, 20.0), 0.0));
-        assert!(touches(&shape, pos2(20.0, 20.0), 2.0));
+    fn commit(canvas: &mut Canvas, line: Line) {
+        canvas.commit(line);
     }
 
     #[test]
     fn erasing_empty_space_keeps_redo() {
         let mut canvas = Canvas::default();
-        canvas.commit(dot(pos2(10.0, 10.0)));
+        commit(&mut canvas, dot(pos2(10.0, 10.0)));
         canvas.undo();
         assert_eq!(canvas.redo.len(), 1);
 
@@ -744,7 +486,7 @@ mod tests {
     #[test]
     fn erasing_a_stroke_adds_one_undo_step() {
         let mut canvas = Canvas::default();
-        canvas.commit(dot(pos2(10.0, 10.0)));
+        commit(&mut canvas, dot(pos2(10.0, 10.0)));
         let steps = canvas.undo.len();
 
         canvas.erase_at(pos2(10.0, 10.0), 5.0);
@@ -777,7 +519,7 @@ mod tests {
     fn eraser_cuts_a_stroke_between_two_distant_points() {
         let mut canvas = Canvas::default();
         // Only two points, 100 px apart: no point is near the eraser.
-        canvas.commit(segment(pos2(0.0, 0.0), pos2(100.0, 0.0)));
+        commit(&mut canvas, segment(pos2(0.0, 0.0), pos2(100.0, 0.0)));
 
         canvas.erase_at(pos2(50.0, 0.0), 5.0);
 
@@ -792,7 +534,7 @@ mod tests {
     #[test]
     fn eraser_near_but_outside_leaves_the_stroke_alone() {
         let mut canvas = Canvas::default();
-        canvas.commit(segment(pos2(0.0, 0.0), pos2(100.0, 0.0)));
+        commit(&mut canvas, segment(pos2(0.0, 0.0), pos2(100.0, 0.0)));
 
         canvas.erase_at(pos2(50.0, 30.0), 5.0);
 
@@ -803,7 +545,7 @@ mod tests {
     #[test]
     fn eraser_removes_the_end_of_a_stroke() {
         let mut canvas = Canvas::default();
-        canvas.commit(segment(pos2(0.0, 0.0), pos2(100.0, 0.0)));
+        commit(&mut canvas, segment(pos2(0.0, 0.0), pos2(100.0, 0.0)));
 
         canvas.erase_at(pos2(100.0, 0.0), 5.0);
 
@@ -813,82 +555,21 @@ mod tests {
     }
 
     #[test]
-    fn brush_keeps_its_initial_anchor_point() {
-        let mut line = Line::new(Color32::BLACK, 6.0);
-
-        push_brush_point(&mut line, pos2(10.0, 10.0));
-        push_brush_point(&mut line, pos2(10.1, 10.1));
-        assert_eq!(line.points.len(), 1);
-
-        push_brush_point(&mut line, pos2(20.0, 10.0));
-        assert_eq!(line.points.len(), 2);
-    }
-
-    #[test]
-    fn brush_finishes_at_the_pointer_when_released() {
-        let mut line = Line::new(Color32::BLACK, 6.0);
-        line.points.push(pos2(0.0, 0.0));
-        line.points.push(pos2(40.0, 0.0));
-
-        finish_brush_to_pointer(&mut line, pos2(100.0, 0.0));
-
-        assert_eq!(line.points.last().copied(), Some(pos2(100.0, 0.0)));
-        assert_eq!(line.points.len(), 3);
-    }
-
-    #[test]
-    fn brush_final_point_is_added_even_when_close_to_the_previous_point() {
-        let mut line = Line::new(Color32::BLACK, 6.0);
-        line.points.push(pos2(0.0, 0.0));
-
-        finish_brush_to_pointer(&mut line, pos2(0.5, 0.0));
-
-        assert_eq!(line.points.last().copied(), Some(pos2(0.5, 0.0)));
-        assert_eq!(line.points.len(), 2);
-    }
-
-    #[test]
-    fn brush_subdivides_fast_segments_for_a_cleaner_path() {
-        let mut line = Line::new(Color32::BLACK, 6.0);
-        line.points.push(pos2(0.0, 0.0));
-
-        add_brush_segment(&mut line, pos2(0.0, 0.0), pos2(25.0, 0.0), 6.0);
-
-        assert!(line.points.len() > 3);
-        assert_eq!(line.points.last().copied(), Some(pos2(25.0, 0.0)));
-    }
-
-    #[test]
     fn history_is_limited() {
         let mut canvas = Canvas::default();
         for i in 0..(HISTORY_LIMIT + 20) {
-            canvas.commit(dot(pos2(i as f32 * 10.0, 0.0)));
+            commit(&mut canvas, dot(pos2(i as f32 * 10.0, 0.0)));
         }
         assert_eq!(canvas.undo.len(), HISTORY_LIMIT);
     }
 
     #[test]
-    fn only_sharp_bends_get_a_round_joint() {
-        let radius = 3.0;
-        // Straight line and a tiny bend: no disc needed.
-        assert!(!needs_round_joint(
-            pos2(0.0, 0.0),
-            pos2(10.0, 0.0),
-            pos2(20.0, 0.0),
-            radius
-        ));
-        assert!(!needs_round_joint(
-            pos2(0.0, 0.0),
-            pos2(10.0, 0.0),
-            pos2(20.0, 1.0),
-            radius
-        ));
-        // Right angle: a flat joint would show a notch.
-        assert!(needs_round_joint(
-            pos2(0.0, 0.0),
-            pos2(10.0, 0.0),
-            pos2(10.0, 10.0),
-            radius
-        ));
+    fn undo_then_redo_restores_the_stroke() {
+        let mut canvas = Canvas::default();
+        commit(&mut canvas, dot(pos2(1.0, 1.0)));
+        canvas.undo();
+        assert!(canvas.is_empty());
+        canvas.redo();
+        assert_eq!(canvas.lines().len(), 1);
     }
 }
