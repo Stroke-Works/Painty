@@ -932,13 +932,13 @@ impl eframe::App for Painty {
         self.follow_ink(c.ink);
         self.handle_shortcuts(ctx);
 
-        // Before the central panel, so the drawing area starts under the title bar.
+        // The canvas fills the whole window; the window buttons float above it.
         titlebar::show(ctx, &c);
         egui::CentralPanel::default()
             .frame(
                 Frame::none()
                     .fill(c.canvas_bg)
-                    .rounding(titlebar::body_rounding(ctx)),
+                    .rounding(titlebar::window_rounding(ctx)),
             )
             .show(ctx, |ui| self.canvas.show(ui, &mut self.brush, c.text_dim));
 

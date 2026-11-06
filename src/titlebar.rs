@@ -1,8 +1,8 @@
-//! The window frame: the title bar, the rounded corners, the border and the edges
-//! used to resize. The native frame is turned off, so all of it is drawn here.
+//! The window frame: the floating window controls, the rounded corners, the border
+//! and the edges used to resize. The native frame is turned off, so all is drawn here.
 
 use eframe::egui::{
-    self, vec2, Area, Color32, Context, CursorIcon, Frame, Id, Order, Painter, Pos2, Rect,
+    self, vec2, Area, Color32, Context, CursorIcon, Id, Order, Painter, Pos2, Rect,
     ResizeDirection, Rounding, Sense, Stroke, ViewportCommand,
 };
 
@@ -10,8 +10,12 @@ use crate::theme::Colors;
 
 /// Corner radius of the window.
 const RADIUS: f32 = 10.0;
-const HEIGHT: f32 = 36.0;
-const BUTTON_W: f32 = 46.0;
+/// Size of the floating window-control rectangle.
+const HEIGHT: f32 = 30.0;
+const BUTTON_W: f32 = 40.0;
+const CONTROLS_ROUNDING: f32 = 7.0;
+/// Distance between the floating controls and the window edges.
+const CONTROLS_MARGIN: f32 = 8.0;
 /// Width of the strip along each edge that starts a resize.
 const EDGE: f32 = 5.0;
 /// Size of the square at each corner that starts a diagonal resize.
@@ -46,61 +50,44 @@ pub fn window_rounding(ctx: &Context) -> Rounding {
     Rounding::same(radius(ctx))
 }
 
-/// Rounding of the area under the title bar: only its bottom corners are round.
-pub fn body_rounding(ctx: &Context) -> Rounding {
-    let r = radius(ctx);
-    Rounding {
-        nw: 0.0,
-        ne: 0.0,
-        sw: r,
-        se: r,
-    }
-}
-
 /// Rounds a position to the middle of a physical pixel, so one point wide lines are crisp.
 fn crisp(ctx: &Context, v: f32) -> f32 {
     let ppp = ctx.pixels_per_point();
     ((v * ppp).floor() + 0.5) / ppp
 }
 
-/// Title bar: empty except for the window buttons on the right. Dragging it moves the
-/// window and a double click maximizes it. Call before the central panel.
+/// Floating window controls in the top-right corner. The rest of that strip is the
+/// canvas. Dragging the rectangle moves the window and a double click maximizes it.
 pub fn show(ctx: &Context, c: &Colors) {
     let maximized = is_maximized(ctx);
-    let r = radius(ctx);
-    let top_rounding = Rounding {
-        nw: r,
-        ne: r,
-        sw: 0.0,
-        se: 0.0,
-    };
-    egui::TopBottomPanel::top("titlebar")
-        .exact_height(HEIGHT)
-        .frame(Frame::none().fill(c.surface).rounding(top_rounding))
+    let buttons = [
+        WindowButton::Minimize,
+        WindowButton::Maximize,
+        WindowButton::Close,
+    ];
+    let bar_size = vec2(BUTTON_W * buttons.len() as f32, HEIGHT);
+    let pos = Pos2::new(
+        ctx.screen_rect().right() - CONTROLS_MARGIN - bar_size.x,
+        ctx.screen_rect().top() + CONTROLS_MARGIN,
+    );
+    Area::new(Id::new("window_controls"))
+        .order(Order::Foreground)
+        .fixed_pos(pos)
         .show(ctx, |ui| {
-            let bar = ui.max_rect();
-            let painter = ui.painter().clone();
-
-            // Added first, so the buttons placed on top of it win their clicks.
-            let drag = ui.interact(bar, Id::new("titlebar_drag"), Sense::click_and_drag());
+            let (bar, drag) = ui.allocate_exact_size(bar_size, Sense::click_and_drag());
             if drag.double_clicked() {
                 ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
             } else if drag.drag_started() {
                 ctx.send_viewport_cmd(ViewportCommand::StartDrag);
             }
 
-            let line = crisp(ctx, bar.bottom() - 1.0);
-            painter.hline(bar.x_range(), line, Stroke::new(1.0_f32, c.border));
+            let painter = ui.painter().clone();
+            painter.rect_filled(bar, CONTROLS_ROUNDING, c.surface);
 
-            let buttons = [
-                WindowButton::Minimize,
-                WindowButton::Maximize,
-                WindowButton::Close,
-            ];
             for (i, kind) in buttons.into_iter().enumerate() {
                 let left = bar.right() - BUTTON_W * (buttons.len() - i) as f32;
                 let rect = Rect::from_min_size(Pos2::new(left, bar.top()), vec2(BUTTON_W, HEIGHT));
-                let response = ui.interact(rect, Id::new(("titlebar_button", i)), Sense::click());
+                let response = ui.interact(rect, Id::new(("window_button", i)), Sense::click());
                 let close = kind == WindowButton::Close;
                 let (bg, fg) = match (
                     close,
@@ -113,10 +100,19 @@ pub fn show(ctx: &Context, c: &Colors) {
                     (false, true, false) => (c.hover, c.text),
                     _ => (c.surface, c.text),
                 };
-                // The close button follows the corner of the window.
-                let rounding = Rounding {
-                    ne: if close { r } else { 0.0 },
-                    ..Rounding::ZERO
+                // The outer buttons follow the rounded corners of the rectangle.
+                let rounding = match i {
+                    0 => Rounding {
+                        nw: CONTROLS_ROUNDING,
+                        sw: CONTROLS_ROUNDING,
+                        ..Rounding::ZERO
+                    },
+                    2 => Rounding {
+                        ne: CONTROLS_ROUNDING,
+                        se: CONTROLS_ROUNDING,
+                        ..Rounding::ZERO
+                    },
+                    _ => Rounding::ZERO,
                 };
                 painter.rect_filled(rect, rounding, bg);
                 draw_glyph(ctx, &painter, rect.center(), kind, maximized, fg, bg);
@@ -129,6 +125,8 @@ pub fn show(ctx: &Context, c: &Colors) {
                     });
                 }
             }
+
+            painter.rect_stroke(bar, CONTROLS_ROUNDING, Stroke::new(1.0_f32, c.border));
         });
 }
 
