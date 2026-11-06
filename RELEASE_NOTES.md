@@ -1,15 +1,13 @@
-# 🎨 Painty 0.3.2
+# 🎨 Painty 0.3.3
 
 ### What's New
 
-- 🪟 Added a custom title bar with minimize, maximize, and close buttons.
-- 🧪 Added a Beta update channel in **Settings → Update channel**. Stable remains the default.
-- 🖌️ Smoother brush strokes with reduced lag, cleaner corners, and sharper edges.
-- 📐 Improved lines, rectangles, and ellipses for clean outlines at any zoom level.
-- 💾 `.painty` projects remain fully compatible when saving and reopening.
+- 🪟 The title bar is gone: minimize, maximize, and close now float in a small rounded panel over the canvas.
+- 🖼️ The canvas fills the whole window, including the strip that used to hold the title bar.
+- 🚀 Stable updates are published as **Latest** and betas as **Pre-release**, so each channel only offers the right builds.
 
 ### 📦 Installation
 
-Download `PaintySetup-0.3.2.exe` for a new installation.
+Download `PaintySetup-0.3.3.exe` for a new installation.
 
 Already have Painty installed? Update directly from **Settings → Check for updates**, or install the update when prompted at startup.
