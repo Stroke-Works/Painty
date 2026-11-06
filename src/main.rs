@@ -16,6 +16,7 @@ mod render;
 mod settings;
 mod smooth;
 mod theme;
+mod titlebar;
 mod toolbar;
 mod updater;
 mod widgets;
@@ -39,6 +40,7 @@ fn main() -> eframe::Result {
             .with_min_inner_size([480.0, 320.0])
             .with_title("Painty")
             .with_decorations(false)
+            .with_transparent(true)
             .with_icon(icon),
         ..Default::default()
     };

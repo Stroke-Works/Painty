@@ -76,8 +76,11 @@ pub fn show(
             let (rect, resp) = ui.allocate_exact_size(screen.size(), Sense::click_and_drag());
             let scrim = c.scrim();
             let alpha = (scrim.a() as f32 * t) as u8;
-            ui.painter()
-                .rect_filled(rect, 0.0, Color32::from_black_alpha(alpha));
+            ui.painter().rect_filled(
+                rect,
+                crate::titlebar::window_rounding(ctx),
+                Color32::from_black_alpha(alpha),
+            );
             if open && resp.clicked() {
                 dismissed = true;
             }

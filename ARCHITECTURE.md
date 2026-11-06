@@ -56,7 +56,11 @@ Icons and flags are loaded using `egui::include_image!`, so they are embedded in
 |------|------|
 | `main.rs` | Entry point. Configures window options, the window icon, image loaders and fonts. Hides the console in release builds. |
 | `app.rs` | Main application state (`Painty`). Handles keyboard shortcuts, project and export dialogs, the currently open dialog (`Modal`) and frame rendering. |
-| `canvas.rs` | Drawing area. Smooths pointer movement, renders strokes and shapes, handles zoom/pan and color picking, erases strokes or shapes, and maintains undo/redo history. |
+| `canvas.rs` | Drawing area. Handles pointer input, zoom/pan, color picking, the eraser and the undo/redo history. |
+| `smooth.rs` | Turns raw brush positions into a smooth polyline (quadratic curves between midpoints, no lag). |
+| `geometry.rs` | Hit tests and the cuts made by the eraser. |
+| `render.rs` | Cuts each stroke into triangles once (round joints and caps, anti-aliased edge) and draws them. |
+| `titlebar.rs` | Custom window frame: title bar, rounded corners, border and resize edges. |
 | `model.rs` | Core data types: `Tool`, `Geometry`, `Line` (a stroke or shape) and `Brush` (current settings). |
 | `project.rs` | Reads and writes versioned `.painty` projects (compact binary with a SHA-256 checksum; old JSON projects are still read), with limits on file size, strokes and points. |
 | `toolbar.rs` | Floating toolbar at the bottom of the window. Its elements fold in and out with animations to fit the window width; it also contains tool, project and palette controls. |
@@ -81,7 +85,7 @@ Widths are measured every frame, so translations of any length fit. With the era
 
 ## Drawing
 
-- **Brush:** Pointer positions are smoothed using `SMOOTHING` in `canvas.rs`. The smoothing is time-based, so it behaves consistently at any frame rate. Points are then added to a `Line`. `Line::push` skips points that are too close together, keeping long strokes lightweight. Each stroke is drawn as flat segments with round caps at both ends. A round disc is added only at the bends sharp enough for a flat joint to show a notch.
+- **Brush:** Pointer positions go through `Smoother` (`smooth.rs`), which builds a smooth curve without delay. The stroke is kept as a `Line`, and `render.rs` cuts it into triangles once and reuses them each frame. Gentle bends share their corners; sharp bends and both ends get a round disc.
 - **Eraser:** Each eraser step tests the eraser disc against the segments of every stroke, not only against their points, so a fast stroke with distant points is cut too. The parts outside the disc are kept as separate strokes. Nothing is allocated when the eraser touches nothing. A complete eraser gesture counts as one undo step.
 - **Undo / Redo:** Each finished stroke or erase operation creates a checkpoint. Strokes are shared using `Arc`, so checkpoints only need to copy pointers. History is limited to `HISTORY_LIMIT` steps.
 - **Shapes:** The line, rectangle and ellipse tools store their geometry in document coordinates. Rectangles and ellipses can be filled; exports render the same shape geometry independently of the current zoom.

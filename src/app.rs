@@ -12,6 +12,7 @@ use crate::model::Brush;
 use crate::project::{self, Document};
 use crate::settings;
 use crate::theme::{self, CanvasColor, Colors, Mode};
+use crate::titlebar;
 use crate::toolbar::{self, Action};
 use crate::updater::{self, Status, Updater};
 use crate::widgets::{self, Kind};
@@ -64,97 +65,6 @@ fn opening_frame(ctx: &egui::Context, id: &str, open: bool) -> bool {
     open && !was_open
 }
 
-/// Height of the app's title bar.
-const TITLEBAR_H: f32 = 32.0;
-/// Width of each window button.
-const BUTTON_W: f32 = 46.0;
-/// Distance from the window edge where a press starts a resize.
-const RESIZE_BORDER: f32 = 6.0;
-/// Left padding of the title bar content.
-const TITLE_PAD: f32 = 10.0;
-/// Background of the close button on hover, as on Windows.
-const CLOSE_RED: Color32 = Color32::from_rgb(0xe8, 0x11, 0x23);
-/// Background of the close button while pressed.
-const CLOSE_PRESSED: Color32 = Color32::from_rgb(0xf1, 0x70, 0x7a);
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum WindowButton {
-    Minimize,
-    Maximize,
-    Close,
-}
-
-/// Draws a window glyph centred on `center`. `bg` is the background behind it, used to
-/// hide the back square of the restore icon.
-fn draw_window_button(
-    painter: &egui::Painter,
-    center: egui::Pos2,
-    kind: WindowButton,
-    maximized: bool,
-    color: Color32,
-    bg: Color32,
-) {
-    let stroke = egui::Stroke::new(1.0_f32, color);
-    let r = 5.0_f32;
-    let square = |at: egui::Pos2| egui::Rect::from_center_size(at, egui::vec2(2.0 * r, 2.0 * r));
-    match kind {
-        WindowButton::Minimize => {
-            painter.hline(center.x - r..=center.x + r, center.y, stroke);
-        }
-        WindowButton::Maximize if maximized => {
-            // Restore: a back square peeking out from behind the front one.
-            painter.rect_stroke(square(center + egui::vec2(2.0, -2.0)), 0.0, stroke);
-            let front = square(center + egui::vec2(-1.0, 1.0));
-            painter.rect_filled(front, 0.0, bg);
-            painter.rect_stroke(front, 0.0, stroke);
-        }
-        WindowButton::Maximize => {
-            painter.rect_stroke(square(center), 0.0, stroke);
-        }
-        WindowButton::Close => {
-            painter.line_segment(
-                [center + egui::vec2(-r, -r), center + egui::vec2(r, r)],
-                stroke,
-            );
-            painter.line_segment(
-                [center + egui::vec2(r, -r), center + egui::vec2(-r, r)],
-                stroke,
-            );
-        }
-    }
-}
-
-/// The window has no native border any more, so its edges are grabbed here to resize it.
-fn resize_from_edges(ctx: &egui::Context) {
-    if ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
-        return;
-    }
-    let Some(pos) = ctx.input(|i| i.pointer.hover_pos()) else {
-        return;
-    };
-    let rect = ctx.screen_rect();
-    let west = pos.x <= rect.left() + RESIZE_BORDER;
-    let east = pos.x >= rect.right() - RESIZE_BORDER;
-    let north = pos.y <= rect.top() + RESIZE_BORDER;
-    let south = pos.y >= rect.bottom() - RESIZE_BORDER;
-    use egui::{CursorIcon, ResizeDirection as D};
-    let (direction, cursor) = match (north, south, west, east) {
-        (true, _, true, _) => (D::NorthWest, CursorIcon::ResizeNwSe),
-        (true, _, _, true) => (D::NorthEast, CursorIcon::ResizeNeSw),
-        (_, true, true, _) => (D::SouthWest, CursorIcon::ResizeNeSw),
-        (_, true, _, true) => (D::SouthEast, CursorIcon::ResizeNwSe),
-        (true, _, _, _) => (D::North, CursorIcon::ResizeVertical),
-        (_, true, _, _) => (D::South, CursorIcon::ResizeVertical),
-        (_, _, true, _) => (D::West, CursorIcon::ResizeHorizontal),
-        (_, _, _, true) => (D::East, CursorIcon::ResizeHorizontal),
-        _ => return,
-    };
-    ctx.set_cursor_icon(cursor);
-    if ctx.input(|i| i.pointer.primary_pressed()) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(direction));
-    }
-}
-
 /// Main application state, updated every frame by egui.
 pub struct Painty {
     canvas: Canvas,
@@ -174,6 +84,8 @@ pub struct Painty {
     auto_update: bool,
     /// Also offer pre-releases (beta versions).
     beta_channel: bool,
+    /// Logo shown in the title bar, loaded on the first frame.
+    logo: Option<egui::TextureHandle>,
     /// Ink color used on the previous frame, to detect a background change.
     last_ink: Option<Color32>,
     /// Settings as last written to disk, to avoid saving every frame.
@@ -229,6 +141,7 @@ impl Painty {
             language: cfg.language,
             auto_update: cfg.auto_update,
             beta_channel: cfg.beta_channel,
+            logo: None,
             last_ink: Some(ink),
             last_saved: cfg,
             modal: Modal::None,
@@ -404,87 +317,6 @@ impl Painty {
             ));
             self.centered = true;
         }
-    }
-
-    /// Title bar drawn by the app, since the native one is turned off: a logo and the
-    /// name on the left, drag to move, double-click to maximize, window buttons on the right.
-    fn show_titlebar(&mut self, ctx: &egui::Context, c: &Colors) {
-        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
-        egui::TopBottomPanel::top("titlebar")
-            .exact_height(TITLEBAR_H)
-            .frame(Frame::none().fill(c.surface))
-            .show(ctx, |ui| {
-                let bar = ui.max_rect();
-                // Added first, so the buttons drawn on top of it win their clicks.
-                let drag = ui.interact(
-                    bar,
-                    egui::Id::new("titlebar_drag"),
-                    egui::Sense::click_and_drag(),
-                );
-                if drag.double_clicked() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
-                } else if drag.drag_started() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                }
-
-                let painter = ui.painter();
-                let logo = egui::Rect::from_center_size(
-                    bar.left_center() + egui::vec2(TITLE_PAD + 5.0, 0.0),
-                    egui::vec2(10.0, 10.0),
-                );
-                painter.rect_filled(logo, 2.0, c.accent);
-                painter.text(
-                    logo.right_center() + egui::vec2(8.0, 0.0),
-                    egui::Align2::LEFT_CENTER,
-                    "Painty",
-                    egui::FontId::proportional(12.5),
-                    c.text,
-                );
-                painter.hline(
-                    bar.x_range(),
-                    bar.bottom(),
-                    egui::Stroke::new(1.0_f32, c.border),
-                );
-
-                let buttons = [
-                    WindowButton::Minimize,
-                    WindowButton::Maximize,
-                    WindowButton::Close,
-                ];
-                for (i, kind) in buttons.into_iter().enumerate() {
-                    let left = bar.right() - BUTTON_W * (buttons.len() - i) as f32;
-                    let rect = egui::Rect::from_min_size(
-                        egui::pos2(left, bar.top()),
-                        egui::vec2(BUTTON_W, TITLEBAR_H),
-                    );
-                    let response = ui.interact(
-                        rect,
-                        egui::Id::new(("titlebar_button", i)),
-                        egui::Sense::click(),
-                    );
-                    let close = kind == WindowButton::Close;
-                    let hovered = response.hovered();
-                    let pressed = response.is_pointer_button_down_on();
-                    let (bg, fg) = match (close, hovered, pressed) {
-                        (true, true, true) => (CLOSE_PRESSED, egui::Color32::WHITE),
-                        (true, true, false) => (CLOSE_RED, egui::Color32::WHITE),
-                        (false, true, true) => (c.active, c.text),
-                        (false, true, false) => (c.hover, c.text),
-                        _ => (c.surface, c.text),
-                    };
-                    painter.rect_filled(rect, 0.0, bg);
-                    draw_window_button(painter, rect.center(), kind, maximized, fg, bg);
-
-                    if response.clicked() {
-                        let command = match kind {
-                            WindowButton::Minimize => egui::ViewportCommand::Minimized(true),
-                            WindowButton::Maximize => egui::ViewportCommand::Maximized(!maximized),
-                            WindowButton::Close => egui::ViewportCommand::Close,
-                        };
-                        ctx.send_viewport_cmd(command);
-                    }
-                }
-            });
     }
 
     /// Silent update check on the first frame, unless turned off in the settings.
@@ -1086,7 +918,15 @@ impl Painty {
 }
 
 impl eframe::App for Painty {
+    /// The window is transparent, so the rounded corners show what is behind it.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Rgba::TRANSPARENT.to_array()
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.logo.is_none() {
+            self.logo = titlebar::load_logo(ctx);
+        }
         self.center_window(ctx);
         self.start_update_check(ctx);
         self.updater.poll(ctx);
@@ -1098,12 +938,18 @@ impl eframe::App for Painty {
         self.follow_ink(c.ink);
         self.handle_shortcuts(ctx);
 
+        // Before the central panel, so the drawing area starts under the title bar.
+        titlebar::show(ctx, &c, self.logo.as_ref());
         egui::CentralPanel::default()
-            .frame(Frame::none().fill(c.canvas_bg))
+            .frame(
+                Frame::none()
+                    .fill(c.canvas_bg)
+                    .rounding(titlebar::body_rounding(ctx)),
+            )
             .show(ctx, |ui| self.canvas.show(ui, &mut self.brush, c.text_dim));
 
-        resize_from_edges(ctx);
-        self.show_titlebar(ctx, &c);
+        titlebar::resize_handles(ctx);
+        titlebar::border(ctx, &c);
         self.show_toolbar(ctx, &c);
         self.show_settings(ctx, &c);
         self.show_release_notes(ctx, &c);
