@@ -2,8 +2,8 @@
 //! used to resize. The native frame is turned off, so all of it is drawn here.
 
 use eframe::egui::{
-    self, vec2, Align2, Area, Color32, Context, CursorIcon, FontId, Frame, Id, Order, Painter,
-    Pos2, Rect, ResizeDirection, Rounding, Sense, Stroke, TextureHandle, ViewportCommand,
+    self, vec2, Area, Color32, Context, CursorIcon, Frame, Id, Order, Painter, Pos2, Rect,
+    ResizeDirection, Rounding, Sense, Stroke, ViewportCommand,
 };
 
 use crate::theme::Colors;
@@ -16,10 +16,6 @@ const BUTTON_W: f32 = 46.0;
 const EDGE: f32 = 5.0;
 /// Size of the square at each corner that starts a diagonal resize.
 const CORNER: f32 = 12.0;
-/// Size of the logo, in points.
-const LOGO: f32 = 16.0;
-/// Side of the logo texture, in pixels: twice its size, so it stays sharp on a 200 % screen.
-const LOGO_PIXELS: u32 = 32;
 /// Background of the close button on hover, as on Windows.
 const CLOSE_HOVER: Color32 = Color32::from_rgb(0xe8, 0x11, 0x23);
 /// Background of the close button while pressed.
@@ -61,30 +57,15 @@ pub fn body_rounding(ctx: &Context) -> Rounding {
     }
 }
 
-/// Builds the logo texture from the application icon.
-pub fn load_logo(ctx: &Context) -> Option<TextureHandle> {
-    let icon = image::load_from_memory(include_bytes!("../assets/icon.png")).ok()?;
-    let small = icon
-        .resize_exact(
-            LOGO_PIXELS,
-            LOGO_PIXELS,
-            image::imageops::FilterType::Lanczos3,
-        )
-        .to_rgba8();
-    let pixels = [LOGO_PIXELS as usize; 2];
-    let image = egui::ColorImage::from_rgba_unmultiplied(pixels, small.as_raw());
-    Some(ctx.load_texture("window_logo", image, egui::TextureOptions::LINEAR))
-}
-
 /// Rounds a position to the middle of a physical pixel, so one point wide lines are crisp.
 fn crisp(ctx: &Context, v: f32) -> f32 {
     let ppp = ctx.pixels_per_point();
     ((v * ppp).floor() + 0.5) / ppp
 }
 
-/// Title bar: logo and name on the left, window buttons on the right. Dragging it moves
-/// the window and a double click maximizes it. Call before the central panel.
-pub fn show(ctx: &Context, c: &Colors, logo: Option<&TextureHandle>) {
+/// Title bar: empty except for the window buttons on the right. Dragging it moves the
+/// window and a double click maximizes it. Call before the central panel.
+pub fn show(ctx: &Context, c: &Colors) {
     let maximized = is_maximized(ctx);
     let r = radius(ctx);
     let top_rounding = Rounding {
@@ -108,25 +89,6 @@ pub fn show(ctx: &Context, c: &Colors, logo: Option<&TextureHandle>) {
                 ctx.send_viewport_cmd(ViewportCommand::StartDrag);
             }
 
-            let logo_rect = Rect::from_center_size(
-                bar.left_center() + vec2(12.0 + LOGO / 2.0, 0.0),
-                vec2(LOGO, LOGO),
-            );
-            if let Some(logo) = logo {
-                painter.image(
-                    logo.id(),
-                    logo_rect,
-                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                    Color32::WHITE,
-                );
-            }
-            painter.text(
-                logo_rect.right_center() + vec2(8.0, 0.0),
-                Align2::LEFT_CENTER,
-                "Painty",
-                FontId::proportional(12.5),
-                c.text,
-            );
             let line = crisp(ctx, bar.bottom() - 1.0);
             painter.hline(bar.x_range(), line, Stroke::new(1.0_f32, c.border));
 

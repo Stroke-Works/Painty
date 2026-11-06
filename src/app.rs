@@ -84,8 +84,6 @@ pub struct Painty {
     auto_update: bool,
     /// Also offer pre-releases (beta versions).
     beta_channel: bool,
-    /// Logo shown in the title bar, loaded on the first frame.
-    logo: Option<egui::TextureHandle>,
     /// Ink color used on the previous frame, to detect a background change.
     last_ink: Option<Color32>,
     /// Settings as last written to disk, to avoid saving every frame.
@@ -141,7 +139,6 @@ impl Painty {
             language: cfg.language,
             auto_update: cfg.auto_update,
             beta_channel: cfg.beta_channel,
-            logo: None,
             last_ink: Some(ink),
             last_saved: cfg,
             modal: Modal::None,
@@ -924,9 +921,6 @@ impl eframe::App for Painty {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.logo.is_none() {
-            self.logo = titlebar::load_logo(ctx);
-        }
         self.center_window(ctx);
         self.start_update_check(ctx);
         self.updater.poll(ctx);
@@ -939,7 +933,7 @@ impl eframe::App for Painty {
         self.handle_shortcuts(ctx);
 
         // Before the central panel, so the drawing area starts under the title bar.
-        titlebar::show(ctx, &c, self.logo.as_ref());
+        titlebar::show(ctx, &c);
         egui::CentralPanel::default()
             .frame(
                 Frame::none()
