@@ -1,4 +1,6 @@
-# 🎨 Painty 0.3.1
+# 🎨 Painty 0.3.2-beta.1
+
+> ⚠️ Version bêta : canal **Bêta** uniquement (Réglages → Canal de mise à jour).
 
 ### What's New
 
@@ -9,6 +11,6 @@
 
 ### 📦 Installation
 
-Download `PaintySetup-0.3.1.exe` for a new installation.
+Download `PaintySetup-0.3.2-beta.1.exe` for a new installation.
 
 Already have Painty installed? Update directly from **Settings → Check for updates**, or install the update when prompted at startup.

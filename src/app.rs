@@ -70,8 +70,12 @@ const TITLEBAR_H: f32 = 32.0;
 const BUTTON_W: f32 = 46.0;
 /// Distance from the window edge where a press starts a resize.
 const RESIZE_BORDER: f32 = 6.0;
+/// Left padding of the title bar content.
+const TITLE_PAD: f32 = 10.0;
 /// Background of the close button on hover, as on Windows.
 const CLOSE_RED: Color32 = Color32::from_rgb(0xe8, 0x11, 0x23);
+/// Background of the close button while pressed.
+const CLOSE_PRESSED: Color32 = Color32::from_rgb(0xf1, 0x70, 0x7a);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum WindowButton {
@@ -80,29 +84,29 @@ enum WindowButton {
     Close,
 }
 
+/// Draws a window glyph centred on `center`. `bg` is the background behind it, used to
+/// hide the back square of the restore icon.
 fn draw_window_button(
     painter: &egui::Painter,
     center: egui::Pos2,
     kind: WindowButton,
     maximized: bool,
     color: Color32,
+    bg: Color32,
 ) {
     let stroke = egui::Stroke::new(1.0_f32, color);
-    let r = 5.0;
+    let r = 5.0_f32;
     let square = |at: egui::Pos2| egui::Rect::from_center_size(at, egui::vec2(2.0 * r, 2.0 * r));
     match kind {
         WindowButton::Minimize => {
             painter.hline(center.x - r..=center.x + r, center.y, stroke);
         }
         WindowButton::Maximize if maximized => {
-            // Two overlapping squares: the restore icon.
-            let back = square(center + egui::vec2(2.0, -2.0));
-            painter.line_segment(
-                [back.left_top() + egui::vec2(2.0, 0.0), back.right_top()],
-                stroke,
-            );
-            painter.line_segment([back.right_top(), back.right_bottom()], stroke);
-            painter.rect_stroke(square(center + egui::vec2(-1.0, 1.0)), 0.0, stroke);
+            // Restore: a back square peeking out from behind the front one.
+            painter.rect_stroke(square(center + egui::vec2(2.0, -2.0)), 0.0, stroke);
+            let front = square(center + egui::vec2(-1.0, 1.0));
+            painter.rect_filled(front, 0.0, bg);
+            painter.rect_stroke(front, 0.0, stroke);
         }
         WindowButton::Maximize => {
             painter.rect_stroke(square(center), 0.0, stroke);
@@ -402,8 +406,8 @@ impl Painty {
         }
     }
 
-    /// Title bar drawn by the app, since the native one is turned off: drag to move,
-    /// double-click to maximize, and the three window buttons.
+    /// Title bar drawn by the app, since the native one is turned off: a logo and the
+    /// name on the left, drag to move, double-click to maximize, window buttons on the right.
     fn show_titlebar(&mut self, ctx: &egui::Context, c: &Colors) {
         let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
         egui::TopBottomPanel::top("titlebar")
@@ -424,12 +428,17 @@ impl Painty {
                 }
 
                 let painter = ui.painter();
+                let logo = egui::Rect::from_center_size(
+                    bar.left_center() + egui::vec2(TITLE_PAD + 5.0, 0.0),
+                    egui::vec2(10.0, 10.0),
+                );
+                painter.rect_filled(logo, 2.0, c.accent);
                 painter.text(
-                    bar.left_center() + egui::vec2(12.0, 0.0),
+                    logo.right_center() + egui::vec2(8.0, 0.0),
                     egui::Align2::LEFT_CENTER,
                     "Painty",
-                    egui::FontId::proportional(13.0),
-                    c.text_dim,
+                    egui::FontId::proportional(12.5),
+                    c.text,
                 );
                 painter.hline(
                     bar.x_range(),
@@ -454,16 +463,17 @@ impl Painty {
                         egui::Sense::click(),
                     );
                     let close = kind == WindowButton::Close;
-                    let fg = if close && response.hovered() {
-                        egui::Color32::WHITE
-                    } else {
-                        c.text
+                    let hovered = response.hovered();
+                    let pressed = response.is_pointer_button_down_on();
+                    let (bg, fg) = match (close, hovered, pressed) {
+                        (true, true, true) => (CLOSE_PRESSED, egui::Color32::WHITE),
+                        (true, true, false) => (CLOSE_RED, egui::Color32::WHITE),
+                        (false, true, true) => (c.active, c.text),
+                        (false, true, false) => (c.hover, c.text),
+                        _ => (c.surface, c.text),
                     };
-                    if response.hovered() {
-                        let bg = if close { CLOSE_RED } else { c.hover };
-                        painter.rect_filled(rect, 0.0, bg);
-                    }
-                    draw_window_button(painter, rect.center(), kind, maximized, fg);
+                    painter.rect_filled(rect, 0.0, bg);
+                    draw_window_button(painter, rect.center(), kind, maximized, fg, bg);
 
                     if response.clicked() {
                         let command = match kind {
