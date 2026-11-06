@@ -943,7 +943,6 @@ impl eframe::App for Painty {
             .show(ctx, |ui| self.canvas.show(ui, &mut self.brush, c.text_dim));
 
         titlebar::resize_handles(ctx);
-        titlebar::border(ctx, &c);
         self.show_toolbar(ctx, &c);
         self.show_settings(ctx, &c);
         self.show_release_notes(ctx, &c);

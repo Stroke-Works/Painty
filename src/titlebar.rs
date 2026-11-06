@@ -2,8 +2,8 @@
 //! and the edges used to resize. The native frame is turned off, so all is drawn here.
 
 use eframe::egui::{
-    self, vec2, Area, Color32, Context, CursorIcon, Id, Order, Painter, Pos2, Rect,
-    ResizeDirection, Rounding, Sense, Stroke, ViewportCommand,
+    vec2, Area, Color32, Context, CursorIcon, Id, Order, Painter, Pos2, Rect, ResizeDirection,
+    Rounding, Sense, Stroke, ViewportCommand,
 };
 
 use crate::theme::Colors;
@@ -171,19 +171,6 @@ fn draw_glyph(
             );
         }
     }
-}
-
-/// One-pixel outline that gives the window its shape, since it has no native border.
-pub fn border(ctx: &Context, c: &Colors) {
-    if is_maximized(ctx) {
-        return;
-    }
-    let painter = ctx.layer_painter(egui::LayerId::new(
-        Order::Foreground,
-        Id::new("window_border"),
-    ));
-    let rect = ctx.screen_rect().shrink(0.5);
-    painter.rect_stroke(rect, window_rounding(ctx), Stroke::new(1.0_f32, c.border));
 }
 
 /// Invisible strips along the edges and corners that start a resize. They sit above the
