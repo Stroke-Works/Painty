@@ -5,11 +5,13 @@
 <h1 align="center">Painty</h1>
 
 <p align="center">
-  A minimal paint app for Windows, written in Rust with egui.
+  A minimal paint application for Windows, written in Rust with egui and eframe.
 </p>
 
 <p align="center">
-  <a href="https://github.com/Gtisseran/painty/releases/latest"><b>Download</b></a>
+  <a href="https://github.com/Stroke-Works/Painty/releases/latest"><b>Download</b></a>
+  ·
+  <a href="https://github.com/Stroke-Works/Painty/releases">Releases</a>
   ·
   <a href="ARCHITECTURE.md">Architecture</a>
   ·
@@ -20,7 +22,7 @@
 
 ## Features
 
-- **Brush** with adjustable size and color, and a color picker
+- **Brush** with an adjustable size and color picker
 - **Smooth strokes** that follow the pointer without jitter
 - **Eraser** that cuts through existing strokes
 - **Line, rectangle and ellipse tools**, with optional shape filling
@@ -29,23 +31,31 @@
 - **Canvas navigation** with zoom and pan
 - **Customizable six-color palette**, saved between sessions
 - **Undo and redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z)
-- **Export** to PNG or JPEG, with a name and a format (Ctrl+Shift+S)
+- **PNG and JPEG export** (Ctrl+Shift+S)
 - **Clear all**, with confirmation
-- **Light and dark theme**, with a light or dark canvas chosen separately
-- **Five languages**: English, French, Spanish, German and Italian, switchable in Settings
-- **Responsive toolbar** whose elements fold in and out smoothly as the window is resized
-- **Automatic updates** from GitHub Releases, checked against a SHA-256 before they are applied, with a progress bar
-- **Settings saved** between sessions
+- **Light and dark themes**, with an independent light or dark canvas
+- **Five languages**: English, French, Spanish, German and Italian
+- **Responsive toolbar** that folds its controls in and out as the window is resized
+- **Borderless window** with rounded corners and floating minimize, maximize and close controls
+- **Update channels**: stable by default, with an optional beta channel
+- **Verified automatic updates** from GitHub Releases, checked against a SHA-256 before installation
 
 ## Install
 
-1. Go to the [latest release](https://github.com/Gtisseran/painty/releases/latest).
-2. Download `PaintySetup-x.y.z.exe` and run it.
-3. Choose where to install. No administrator rights are needed.
+1. Open the [latest release](https://github.com/Stroke-Works/Painty/releases/latest).
+2. Download `PaintySetup-X.Y.Z.exe` and run it. Administrator rights are not required.
+3. Windows can then offer Painty in **Open with** for `.painty` project files.
 
-Painty checks for updates when it starts (this can be turned off in **Settings**). You can also check by hand from **Settings → Check for updates**.
-After installing, Windows can offer Painty in **Open with** for `.painty` project files.
-Click the version in **Settings** to read the current release notes.
+Painty checks for updates when it starts; this can be disabled in **Settings**. You can also check manually from **Settings → Check for updates**. Click the version in **Settings** to read the release notes bundled with the installed version.
+
+## Updates
+
+Painty uses two channels, selected in **Settings → Update channel**:
+
+- **Stable** (default) follows the latest stable GitHub release.
+- **Beta** also accepts pre-releases.
+
+The updater downloads only `painty.exe`. It verifies the published `painty.exe.sha256`, the file size and the Windows `MZ` header before replacing the current executable, then restarts Painty. No installer is run during an update.
 
 ## Keyboard shortcuts
 
@@ -58,11 +68,11 @@ Click the version in **Settings** to read the current release notes.
 | Ctrl+Shift+S | Export to PNG or JPEG |
 | Ctrl+0 | Reset canvas zoom and position |
 
-Use the **mouse wheel** to zoom in or out around the pointer. **Middle-click and drag** to move the canvas; Space + drag is also supported. Right-click a palette color to edit it.
+Use the **mouse wheel** to zoom around the pointer. **Middle-click and drag**, or **Space + drag**, to move the canvas. Right-click a palette color to edit it.
 
 ## Languages
 
-The interface is available in English, French, Spanish, German and Italian. The language is chosen from a drop-down in **Settings → Language** and saved with the other settings. Translations are stored in `assets/lang/` as JSON files, one per language. To add a language, see [ARCHITECTURE.md](ARCHITECTURE.md#adding-a-language).
+The interface is available in English, French, Spanish, German and Italian. Choose a language in **Settings → Language**; it is saved with the other settings. Translations live in `assets/lang/` as JSON files, one per language. See [ARCHITECTURE.md](ARCHITECTURE.md#adding-a-language) to add another one.
 
 ## Build from source
 
@@ -73,13 +83,19 @@ Requirements:
 - Visual Studio Build Tools with the **C++ workload** (MSVC linker)
 - [Inno Setup 6](https://jrsoftware.org/isinfo.php), only to build the installer
 
-Run the app:
+Run the application:
 
 ```powershell
 .\run.ps1
 ```
 
-Check the code the way the CI does:
+Run the same checks as CI:
+
+```powershell
+.\check.ps1
+```
+
+Or run them directly:
 
 ```powershell
 cargo fmt --all -- --check
@@ -87,40 +103,53 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-Build the executable, its checksum and the installer:
+Build the release executable, its checksum and the installer:
 
 ```powershell
-.\release.ps1
+$version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+
+cargo build --release
+New-Item dist -ItemType Directory -Force | Out-Null
+Copy-Item target\release\painty.exe dist\painty.exe
+$hash = (Get-FileHash dist\painty.exe -Algorithm SHA256).Hash.ToLower()
+"$hash  painty.exe" | Set-Content -Path dist\painty.exe.sha256 -Encoding ascii
+& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" painty.iss
 ```
 
-Everything is written to `dist\`: `painty.exe`, `painty.exe.sha256` and `PaintySetup-<version>.exe`.
-
-## Updates
-
-Painty downloads only `painty.exe` from the latest GitHub release and replaces itself. The download is checked against `painty.exe.sha256`, published with the release, and is refused if it does not match. No installer is run, and the new version starts right after the download.
+The artifacts are written to `dist\`: `painty.exe`, `painty.exe.sha256` and `PaintySetup-<version>.exe`.
 
 ## Releasing
 
-1. Set the new version in `Cargo.toml`, then run `cargo build` to update `Cargo.lock`.
-2. Write the release notes in `RELEASE_NOTES.md`.
-3. Copy those notes to `assets/archive/vX.Y.Z.md`, replacing `X.Y.Z` with the new version. This keeps the notes shown in Settings tied to the installed version.
-4. Commit and push, wait for the CI to pass, then push the tag:
+1. Set the same version in `Cargo.toml` and `painty.iss`, then run `cargo build` to update `Cargo.lock`.
+2. Write the release description in `RELEASE_NOTES.md`.
+3. Copy it to `assets/archive/vX.Y.Z.md`. The app embeds the file matching its own version.
+4. Commit, push, and wait for CI to pass.
+5. Push the matching tag.
+
+For a stable release:
 
 ```powershell
-git tag v0.2.3
-git push origin v0.2.3
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
-The `Release` workflow builds `painty.exe`, its `.sha256` and the installer, and publishes them as **Painty 0.2.3**. The tag must match the version in `Cargo.toml`.
+For a beta release, use the same SemVer pre-release version everywhere (`Cargo.toml`, `painty.iss` and `assets/archive/`):
+
+```powershell
+git tag vX.Y.Z-beta.1
+git push origin vX.Y.Z-beta.1
+```
+
+The `Release` workflow publishes stable tags as **Latest** and tags containing a hyphen as **Pre-release**. The tag must be exactly `v` followed by the version in `Cargo.toml`, and every release contains `painty.exe`, `painty.exe.sha256` and `PaintySetup-<version>.exe`.
 
 ## Settings
 
-Settings (theme, canvas color, language, update check) are stored in `%APPDATA%\Painty\settings.txt`.
+Settings are stored in `%APPDATA%\Painty\settings.txt`: theme, canvas color, language, automatic update check, update channel and palette.
 
 ## Project structure
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for a full description of each file.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for a description of every source file.
 
 ## License
 
-Released under the [MIT License](LICENSE). © 2026 Gtisseran
+Released under the [MIT License](LICENSE). © 2026 Stroke Works
