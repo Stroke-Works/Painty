@@ -16,7 +16,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use eframe::egui::{Color32, Pos2, Rect};
+use eframe::egui::{Color32, Pos2};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -325,18 +325,11 @@ fn build_line(
     }) {
         return Err("The project contains invalid drawing coordinates.".to_owned());
     }
-    let mut line = Line {
-        points: points
-            .into_iter()
-            .map(|point| Pos2::new(point[0], point[1]))
-            .collect(),
-        color,
-        width,
-        geometry,
-        filled,
-        bounds: Rect::NOTHING,
-    };
-    line.finish();
+    let points = points
+        .into_iter()
+        .map(|point| Pos2::new(point[0], point[1]))
+        .collect();
+    let line = Line::build(geometry, color, width, filled, points);
     Ok(Arc::new(line))
 }
 
