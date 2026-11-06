@@ -87,7 +87,7 @@ fn draw_window_button(
     maximized: bool,
     color: Color32,
 ) {
-    let stroke = egui::Stroke::new(1.0, color);
+    let stroke = egui::Stroke::new(1.0_f32, color);
     let r = 5.0;
     let square = |at: egui::Pos2| egui::Rect::from_center_size(at, egui::vec2(2.0 * r, 2.0 * r));
     match kind {
@@ -434,7 +434,7 @@ impl Painty {
                 painter.hline(
                     bar.x_range(),
                     bar.bottom(),
-                    egui::Stroke::new(1.0, c.border),
+                    egui::Stroke::new(1.0_f32, c.border),
                 );
 
                 let buttons = [
