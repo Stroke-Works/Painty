@@ -2,6 +2,8 @@ name: Release
 
 # Publishes a release when a version tag is pushed (git tag vx.x.x && git push origin vx.x.x).
 # The tag must match the version in Cargo.toml.
+# Stable tags (vX.Y.Z) become the latest release. Pre-release tags (vX.Y.Z-beta.N)
+# are published as "Pre-release" and never replace the latest stable download.
 on:
   push:
     tags:
@@ -25,12 +27,20 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Check the tag matches Cargo.toml
+      - name: Check the tag and detect the channel
         shell: pwsh
         run: |
           $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
           if ("v$version" -ne "${{ github.ref_name }}") {
             throw "Tag ${{ github.ref_name }} does not match Cargo.toml version $version"
+          }
+          # A semver pre-release tag contains a hyphen (v0.3.2-beta.1).
+          if ($version -match '-') {
+            "IS_PRERELEASE=true" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "MAKE_LATEST=false" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          } else {
+            "IS_PRERELEASE=false" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "MAKE_LATEST=true" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           }
           "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
@@ -59,6 +69,8 @@ jobs:
         with:
           name: Painty ${{ env.RELEASE_VERSION }}
           body_path: RELEASE_NOTES.md
+          prerelease: ${{ env.IS_PRERELEASE }}
+          make_latest: ${{ env.MAKE_LATEST }}
           overwrite_files: true
           files: |
             dist/painty.exe

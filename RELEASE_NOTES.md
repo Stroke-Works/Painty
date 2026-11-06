@@ -1,18 +1,14 @@
-# Painty 0.3.2
+# 🎨 Painty 0.3.2
 
 ### What's New
 
-**Custom title bar** — The window now uses Painty's own title bar, with minimize, maximize and close buttons.
+- 🪟 Added a custom title bar with minimize, maximize, and close buttons.
+- 🧪 Added a Beta update channel in **Settings → Update channel**. Stable remains the default.
+- 🖌️ Smoother brush strokes with reduced lag, cleaner corners, and sharper edges.
+- 📐 Improved lines, rectangles, and ellipses for clean outlines at any zoom level.
+- 💾 `.painty` projects remain fully compatible when saving and reopening.
 
-**Beta channel** — Settings → Update channel lets you opt in to pre-releases. Stable is the default.
-
-**Smoother strokes** — Brush strokes follow the pointer without lag, with clean corners and sharper edges.
-
-**Drawing tools** — Lines, rectangles and ellipses keep clean outlines at any zoom.
-
-**Editable projects** — Saving and reopening `.painty` files is unchanged and fully compatible.
-
-### Installation
+### 📦 Installation
 
 Download `PaintySetup-0.3.2.exe` for a new installation.
 
