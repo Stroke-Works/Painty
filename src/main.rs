@@ -38,6 +38,7 @@ fn main() -> eframe::Result {
             .with_inner_size(app::DEFAULT_WINDOW_SIZE)
             .with_min_inner_size([480.0, 320.0])
             .with_title("Painty")
+            .with_decorations(false)
             .with_icon(icon),
         ..Default::default()
     };

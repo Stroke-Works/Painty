@@ -8,8 +8,8 @@ use crate::widgets::{self, Kind};
 
 /// Card width from the mockup, padding included.
 const CARD_W: f32 = 400.0;
-/// Inner height of the 440 px card (24 px padding on each side).
-const CONTENT_H: f32 = 392.0;
+/// Inner height of the 488 px card (24 px padding on each side).
+const CONTENT_H: f32 = 440.0;
 /// Separator (1) + top padding (16) + footer row (40).
 const FOOTER_H: f32 = 57.0;
 /// Width reserved on the right of a setting row for its control.
@@ -22,6 +22,8 @@ const SEG_H: f32 = 36.0;
 const INFO_W: f32 = 150.0;
 
 /// Settings dialog: theme, canvas colour, language, update check and the update footer.
+// Each argument is a separate setting bound to the caller's state, so grouping them would only add indirection.
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ctx: &Context,
     open: &mut bool,
@@ -29,6 +31,7 @@ pub fn show(
     canvas: &mut CanvasColor,
     language: &mut Lang,
     auto_update: &mut bool,
+    beta: &mut bool,
     updater: &mut Updater,
     c: &Colors,
 ) -> bool {
@@ -96,6 +99,21 @@ pub fn show(
                 c,
                 auto_update,
                 &[(true, t("toggle.on")), (false, t("toggle.off"))],
+                SEG_W,
+                SEG_H,
+                13.0,
+            );
+        });
+
+        ui.add_space(12.0);
+
+        widgets::setting_row(ui, c, t("settings.channel"), CONTROL_W, |ui| {
+            widgets::segmented_sized(
+                ui,
+                "settings_channel",
+                c,
+                beta,
+                &[(false, t("channel.stable")), (true, t("channel.beta"))],
                 SEG_W,
                 SEG_H,
                 13.0,
@@ -193,7 +211,7 @@ pub fn show(
                     })
                     .inner;
                 if check {
-                    updater.check(ctx, true);
+                    updater.check(ctx, true, *beta);
                 }
             });
         });

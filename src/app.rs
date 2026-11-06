@@ -64,6 +64,93 @@ fn opening_frame(ctx: &egui::Context, id: &str, open: bool) -> bool {
     open && !was_open
 }
 
+/// Height of the app's title bar.
+const TITLEBAR_H: f32 = 32.0;
+/// Width of each window button.
+const BUTTON_W: f32 = 46.0;
+/// Distance from the window edge where a press starts a resize.
+const RESIZE_BORDER: f32 = 6.0;
+/// Background of the close button on hover, as on Windows.
+const CLOSE_RED: Color32 = Color32::from_rgb(0xe8, 0x11, 0x23);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WindowButton {
+    Minimize,
+    Maximize,
+    Close,
+}
+
+fn draw_window_button(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    kind: WindowButton,
+    maximized: bool,
+    color: Color32,
+) {
+    let stroke = egui::Stroke::new(1.0, color);
+    let r = 5.0;
+    let square = |at: egui::Pos2| egui::Rect::from_center_size(at, egui::vec2(2.0 * r, 2.0 * r));
+    match kind {
+        WindowButton::Minimize => {
+            painter.hline(center.x - r..=center.x + r, center.y, stroke);
+        }
+        WindowButton::Maximize if maximized => {
+            // Two overlapping squares: the restore icon.
+            let back = square(center + egui::vec2(2.0, -2.0));
+            painter.line_segment(
+                [back.left_top() + egui::vec2(2.0, 0.0), back.right_top()],
+                stroke,
+            );
+            painter.line_segment([back.right_top(), back.right_bottom()], stroke);
+            painter.rect_stroke(square(center + egui::vec2(-1.0, 1.0)), 0.0, stroke);
+        }
+        WindowButton::Maximize => {
+            painter.rect_stroke(square(center), 0.0, stroke);
+        }
+        WindowButton::Close => {
+            painter.line_segment(
+                [center + egui::vec2(-r, -r), center + egui::vec2(r, r)],
+                stroke,
+            );
+            painter.line_segment(
+                [center + egui::vec2(r, -r), center + egui::vec2(-r, r)],
+                stroke,
+            );
+        }
+    }
+}
+
+/// The window has no native border any more, so its edges are grabbed here to resize it.
+fn resize_from_edges(ctx: &egui::Context) {
+    if ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
+        return;
+    }
+    let Some(pos) = ctx.input(|i| i.pointer.hover_pos()) else {
+        return;
+    };
+    let rect = ctx.screen_rect();
+    let west = pos.x <= rect.left() + RESIZE_BORDER;
+    let east = pos.x >= rect.right() - RESIZE_BORDER;
+    let north = pos.y <= rect.top() + RESIZE_BORDER;
+    let south = pos.y >= rect.bottom() - RESIZE_BORDER;
+    use egui::{CursorIcon, ResizeDirection as D};
+    let (direction, cursor) = match (north, south, west, east) {
+        (true, _, true, _) => (D::NorthWest, CursorIcon::ResizeNwSe),
+        (true, _, _, true) => (D::NorthEast, CursorIcon::ResizeNeSw),
+        (_, true, true, _) => (D::SouthWest, CursorIcon::ResizeNeSw),
+        (_, true, _, true) => (D::SouthEast, CursorIcon::ResizeNwSe),
+        (true, _, _, _) => (D::North, CursorIcon::ResizeVertical),
+        (_, true, _, _) => (D::South, CursorIcon::ResizeVertical),
+        (_, _, true, _) => (D::West, CursorIcon::ResizeHorizontal),
+        (_, _, _, true) => (D::East, CursorIcon::ResizeHorizontal),
+        _ => return,
+    };
+    ctx.set_cursor_icon(cursor);
+    if ctx.input(|i| i.pointer.primary_pressed()) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(direction));
+    }
+}
+
 /// Main application state, updated every frame by egui.
 pub struct Painty {
     canvas: Canvas,
@@ -81,6 +168,8 @@ pub struct Painty {
     language: Lang,
     /// Look for a new version when the app starts.
     auto_update: bool,
+    /// Also offer pre-releases (beta versions).
+    beta_channel: bool,
     /// Ink color used on the previous frame, to detect a background change.
     last_ink: Option<Color32>,
     /// Settings as last written to disk, to avoid saving every frame.
@@ -135,6 +224,7 @@ impl Painty {
             last_system_check: Instant::now(),
             language: cfg.language,
             auto_update: cfg.auto_update,
+            beta_channel: cfg.beta_channel,
             last_ink: Some(ink),
             last_saved: cfg,
             modal: Modal::None,
@@ -312,6 +402,81 @@ impl Painty {
         }
     }
 
+    /// Title bar drawn by the app, since the native one is turned off: drag to move,
+    /// double-click to maximize, and the three window buttons.
+    fn show_titlebar(&mut self, ctx: &egui::Context, c: &Colors) {
+        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+        egui::TopBottomPanel::top("titlebar")
+            .exact_height(TITLEBAR_H)
+            .frame(Frame::none().fill(c.surface))
+            .show(ctx, |ui| {
+                let bar = ui.max_rect();
+                // Added first, so the buttons drawn on top of it win their clicks.
+                let drag = ui.interact(
+                    bar,
+                    egui::Id::new("titlebar_drag"),
+                    egui::Sense::click_and_drag(),
+                );
+                if drag.double_clicked() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+                } else if drag.drag_started() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+
+                let painter = ui.painter();
+                painter.text(
+                    bar.left_center() + egui::vec2(12.0, 0.0),
+                    egui::Align2::LEFT_CENTER,
+                    "Painty",
+                    egui::FontId::proportional(13.0),
+                    c.text_dim,
+                );
+                painter.hline(
+                    bar.x_range(),
+                    bar.bottom(),
+                    egui::Stroke::new(1.0, c.border),
+                );
+
+                let buttons = [
+                    WindowButton::Minimize,
+                    WindowButton::Maximize,
+                    WindowButton::Close,
+                ];
+                for (i, kind) in buttons.into_iter().enumerate() {
+                    let left = bar.right() - BUTTON_W * (buttons.len() - i) as f32;
+                    let rect = egui::Rect::from_min_size(
+                        egui::pos2(left, bar.top()),
+                        egui::vec2(BUTTON_W, TITLEBAR_H),
+                    );
+                    let response = ui.interact(
+                        rect,
+                        egui::Id::new(("titlebar_button", i)),
+                        egui::Sense::click(),
+                    );
+                    let close = kind == WindowButton::Close;
+                    let fg = if close && response.hovered() {
+                        egui::Color32::WHITE
+                    } else {
+                        c.text
+                    };
+                    if response.hovered() {
+                        let bg = if close { CLOSE_RED } else { c.hover };
+                        painter.rect_filled(rect, 0.0, bg);
+                    }
+                    draw_window_button(painter, rect.center(), kind, maximized, fg);
+
+                    if response.clicked() {
+                        let command = match kind {
+                            WindowButton::Minimize => egui::ViewportCommand::Minimized(true),
+                            WindowButton::Maximize => egui::ViewportCommand::Maximized(!maximized),
+                            WindowButton::Close => egui::ViewportCommand::Close,
+                        };
+                        ctx.send_viewport_cmd(command);
+                    }
+                }
+            });
+    }
+
     /// Silent update check on the first frame, unless turned off in the settings.
     /// Errors are not shown.
     fn start_update_check(&mut self, ctx: &egui::Context) {
@@ -320,7 +485,7 @@ impl Painty {
         }
         self.update_checked = true;
         if self.auto_update {
-            self.updater.check(ctx, false);
+            self.updater.check(ctx, false, self.beta_channel);
         }
     }
 
@@ -474,6 +639,7 @@ impl Painty {
             &mut self.canvas_color,
             &mut self.language,
             &mut self.auto_update,
+            &mut self.beta_channel,
             &mut self.updater,
             c,
         );
@@ -535,6 +701,7 @@ impl Painty {
             canvas: self.canvas_color,
             language: self.language,
             auto_update: self.auto_update,
+            beta_channel: self.beta_channel,
             palette: self.palette,
         };
         if current != self.last_saved {
@@ -925,6 +1092,8 @@ impl eframe::App for Painty {
             .frame(Frame::none().fill(c.canvas_bg))
             .show(ctx, |ui| self.canvas.show(ui, &mut self.brush, c.text_dim));
 
+        resize_from_edges(ctx);
+        self.show_titlebar(ctx, &c);
         self.show_toolbar(ctx, &c);
         self.show_settings(ctx, &c);
         self.show_release_notes(ctx, &c);

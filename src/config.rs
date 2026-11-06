@@ -14,6 +14,8 @@ pub struct Config {
     pub language: Lang,
     /// Look for a new version each time the app starts.
     pub auto_update: bool,
+    /// Also offer pre-releases (beta versions).
+    pub beta_channel: bool,
     pub palette: [egui::Color32; 6],
 }
 
@@ -24,6 +26,7 @@ impl Default for Config {
             canvas: CanvasColor::Light,
             language: Lang::default(),
             auto_update: true,
+            beta_channel: false,
             palette: theme::palette(theme::INK_LIGHT),
         }
     }
@@ -65,6 +68,7 @@ fn parse(text: &str) -> Config {
             }
             // Anything but an explicit "false" keeps the default.
             ("auto_update", v) => cfg.auto_update = v != "false",
+            ("beta_channel", v) => cfg.beta_channel = v == "true",
             ("palette", v) => {
                 if let Some(palette) = parse_palette(v) {
                     cfg.palette = palette;
@@ -136,9 +140,10 @@ pub fn save(cfg: &Config) {
         .collect::<Vec<_>>()
         .join(",");
     let text = format!(
-        "theme={theme}\ncanvas={canvas}\nlanguage={}\nauto_update={}\npalette={palette}\n",
+        "theme={theme}\ncanvas={canvas}\nlanguage={}\nauto_update={}\nbeta_channel={}\npalette={palette}\n",
         cfg.language.code(),
-        cfg.auto_update
+        cfg.auto_update,
+        cfg.beta_channel
     );
     let _ = fs::write(path, text);
 }
@@ -168,6 +173,13 @@ mod tests {
         let cfg = parse("theme=light\ncanvas_follows_theme=false\n");
         assert_eq!(cfg.canvas, CanvasColor::Light);
         assert_eq!(cfg.theme, Some(Mode::Light));
+    }
+
+    #[test]
+    fn beta_channel_is_off_unless_turned_on() {
+        assert!(!parse("").beta_channel);
+        assert!(parse("beta_channel=true\n").beta_channel);
+        assert!(!parse("beta_channel=nonsense\n").beta_channel);
     }
 
     #[test]

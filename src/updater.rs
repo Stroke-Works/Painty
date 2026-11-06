@@ -20,6 +20,9 @@ use crate::i18n::{t, tf};
 /// Latest release of the repository. The release must contain an asset named `painty.exe`
 /// and its checksum, `painty.exe.sha256`.
 const API_URL: &str = "https://api.github.com/repos/Stroke-Works/Painty/releases/latest";
+/// Every release, pre-releases included, newest first.
+const API_RELEASES_URL: &str =
+    "https://api.github.com/repos/Stroke-Works/Painty/releases?per_page=10";
 const ASSET_NAME: &str = "painty.exe";
 const CHECKSUM_ASSET_NAME: &str = "painty.exe.sha256";
 /// Downloads are only accepted from the releases of this repository.
@@ -121,7 +124,7 @@ pub struct Updater {
 
 impl Updater {
     /// Starts a version check in the background.
-    pub fn check(&mut self, ctx: &Context, manual: bool) {
+    pub fn check(&mut self, ctx: &Context, manual: bool, beta: bool) {
         if matches!(self.status, Status::Checking | Status::Downloading(_)) {
             return;
         }
@@ -131,7 +134,7 @@ impl Updater {
         self.rx = Some(rx);
         let ctx = ctx.clone();
         thread::spawn(move || {
-            let result = fetch_latest();
+            let result = fetch_latest(beta);
             let _ = tx.send(Message::Checked { result, manual });
             ctx.request_repaint();
         });
@@ -212,17 +215,27 @@ impl Updater {
 }
 
 /// Asks GitHub for the latest release. Returns `None` if this version is up to date.
-fn fetch_latest() -> Result<Option<Release>, String> {
+fn fetch_latest(beta: bool) -> Result<Option<Release>, String> {
     // Read the body as text, then parse it with serde_json (ureq's `json` feature is not enabled).
     let body = agent()
-        .get(API_URL)
+        .get(if beta { API_RELEASES_URL } else { API_URL })
         .set("User-Agent", "painty-updater")
         .set("Accept", "application/vnd.github+json")
         .call()
         .map_err(|e| e.to_string())?
         .into_string()
         .map_err(|e| e.to_string())?;
-    let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let parsed: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    // The beta channel takes the newest release that is not a draft, pre-releases included.
+    let json = if beta {
+        parsed
+            .as_array()
+            .and_then(|list| list.iter().find(|r| r["draft"].as_bool() != Some(true)))
+            .cloned()
+            .ok_or(t("error.no_tag"))?
+    } else {
+        parsed
+    };
 
     let tag = json["tag_name"].as_str().ok_or(t("error.no_tag"))?;
     let version = tag.trim_start_matches('v').to_owned();
