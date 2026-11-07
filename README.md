@@ -36,7 +36,7 @@
 - **Light and dark themes**, with an independent light or dark canvas
 - **Five languages**: English, French, Spanish, German and Italian
 - **Responsive toolbar** that folds its controls in and out as the window is resized
-- **Borderless window** with rounded corners and floating minimize, maximize and close controls
+- **Borderless window** with rounded corners and a compact floating panel: drag grip, minimize, maximize and close
 - **Update channels**: stable by default, with an optional beta channel
 - **Verified automatic updates** from GitHub Releases, checked against a SHA-256 before installation
 
