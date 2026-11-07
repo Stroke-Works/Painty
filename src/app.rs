@@ -977,8 +977,8 @@ mod tests {
         let notes = super::CURRENT_RELEASE_NOTES;
         let expected_title = format!("# Painty {}", env!("CARGO_PKG_VERSION"));
         assert!(notes.starts_with(&expected_title));
-        assert!(notes.contains("**Floating window controls**"));
-        assert!(notes.contains("**Full-window canvas**"));
+        assert!(notes.contains("**Cleaner window controls**"));
+        assert!(notes.contains("**Sharper icons**"));
         assert!(!notes.contains("📁"));
         assert!(!notes.contains("🔎"));
         assert!(!notes.contains("✏️"));
