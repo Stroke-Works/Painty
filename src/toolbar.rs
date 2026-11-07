@@ -46,14 +46,42 @@ const SLIDER_MIN: f32 = 32.0;
 const SLIDER_MAX: f32 = 120.0;
 /// Slider length needed before Undo and Clear switch to text.
 const LABELS_SLIDER: f32 = 80.0;
+/// Extra width a fold needs to open again once it has closed. Without it, a window
+/// resized around a threshold makes the toolbar open and close on every frame.
+const HYSTERESIS: f32 = 14.0;
 
 /// Width of a toolbar text button: label plus 20 px of padding.
 fn text_button_w(ctx: &Context, label: &str) -> f32 {
-    ctx.fonts(|f| {
+    let text_w = ctx.fonts(|f| {
         f.layout_no_wrap(label.to_owned(), FontId::proportional(13.0), Color32::WHITE)
             .size()
             .x
-    }) + 20.0
+    });
+    text_w.ceil() + 20.0
+}
+
+/// Gap between elements: 4 px at the minimum window width, 10 px from 700 px.
+/// Whole pixels, so the icons keep the same sub-pixel phase while the window moves.
+fn gap(screen_w: f32) -> f32 {
+    (4.0 + 6.0 * ((screen_w - 480.0) / 220.0).clamp(0.0, 1.0)).round()
+}
+
+/// Whether a fold is open: it opens at `need + HYSTERESIS` and closes below `need`.
+fn fold_open(was_open: bool, avail: f32, need: f32) -> bool {
+    if was_open {
+        avail >= need
+    } else {
+        avail >= need + HYSTERESIS
+    }
+}
+
+/// `fold_open` with the previous state kept in the context.
+fn sticky_fold(ctx: &Context, key: &str, avail: f32, need: f32) -> bool {
+    let id = Id::new(key);
+    let was_open = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    let open = fold_open(was_open, avail, need);
+    ctx.data_mut(|d| d.insert_temp(id, open));
+    open
 }
 
 /// Width of the main row. `labels` goes from 0 (icons) to 1 (text); cells that are
@@ -81,20 +109,23 @@ pub fn show(
     c: &Colors,
 ) -> Option<Action> {
     let screen_w = ctx.screen_rect().width();
-    // Gap between elements: 4 px at the minimum window width, 10 px from 700 px.
-    let g = 4.0 + 6.0 * ((screen_w - 480.0) / 220.0).clamp(0.0, 1.0);
+    let g = gap(screen_w);
     let avail = (screen_w - 2.0 * EDGE - 2.0 * PAD_X - 2.0).max(0.0);
 
     let undo_w = text_button_w(ctx, t("action.undo"));
     let clear_w = text_button_w(ctx, t("action.clear"));
 
-    let labels_on = avail >= main_width(g, 1.0, undo_w, clear_w, LABELS_SLIDER);
-    let palette_on = avail >= main_width(g, 1.0, undo_w, clear_w, SLIDER_MAX);
+    let labels_need = main_width(g, 1.0, undo_w, clear_w, LABELS_SLIDER);
+    let palette_need = main_width(g, 1.0, undo_w, clear_w, SLIDER_MAX);
+    let labels_on = sticky_fold(ctx, "toolbar_labels_open", avail, labels_need);
+    let palette_on = sticky_fold(ctx, "toolbar_palette_open", avail, palette_need);
     let tl = ctx.animate_bool_with_time(Id::new("toolbar_labels"), labels_on, ANIM);
     let tp = ctx.animate_bool_with_time(Id::new("toolbar_palette"), palette_on, ANIM);
 
     // The slider takes what the other elements leave, so the row always fits.
-    let slider_w = (avail - main_width(g, tl, undo_w, clear_w, 0.0)).clamp(SLIDER_MIN, SLIDER_MAX);
+    let slider_w = (avail - main_width(g, tl, undo_w, clear_w, 0.0))
+        .clamp(SLIDER_MIN, SLIDER_MAX)
+        .floor();
     let row_w = main_width(g, tl, undo_w, clear_w, slider_w);
     let palette_w = 6.0 * SWATCH_W + 5.0 * g;
     let total_h = ROW_H + (PALETTE_H + ROW_GAP) * tp;
@@ -656,7 +687,34 @@ fn tool_name(tool: Tool) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{keep_dropdown_open, BOTTOM_GAP};
+    use super::{fold_open, gap, keep_dropdown_open, BOTTOM_GAP, HYSTERESIS};
+
+    #[test]
+    fn fold_does_not_flicker_around_its_threshold() {
+        let need = 500.0;
+        let mut open = false;
+        let mut changes = 0;
+        // Width wobbling by a few pixels around the threshold.
+        for avail in [498.0, 503.0, 497.0, 505.0, 499.0, 508.0, 496.0] {
+            let next = fold_open(open, avail, need);
+            changes += usize::from(next != open);
+            open = next;
+        }
+        assert_eq!(changes, 0, "closed fold must stay closed inside the margin");
+
+        assert!(fold_open(false, need + HYSTERESIS, need));
+        assert!(fold_open(true, need, need));
+        assert!(!fold_open(true, need - 0.5, need));
+    }
+
+    #[test]
+    fn gap_is_a_whole_number_of_pixels() {
+        for w in (480..=900).map(|w| w as f32 + 0.37) {
+            let g = gap(w);
+            assert_eq!(g, g.round());
+            assert!((4.0..=10.0).contains(&g));
+        }
+    }
 
     #[test]
     fn dropdown_stays_open_until_dismissed_or_an_option_is_used() {
