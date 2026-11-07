@@ -2111,11 +2111,13 @@ dependencies = [
  "egui_commonmark",
  "egui_extras",
  "image",
+ "raw-window-handle",
  "rfd",
  "serde",
  "serde_json",
  "sha2",
  "ureq",
+ "windows-sys 0.61.2",
  "winres",
 ]
 

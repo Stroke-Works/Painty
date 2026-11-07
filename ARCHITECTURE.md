@@ -20,7 +20,7 @@ main.rs
 theme.rs is used by every UI file.
 ```
 
-The main window starts at 1200 × 800 px when the monitor allows it, is capped at 85 % of the monitor, and is centered on startup. It is borderless and transparent, with rounded corners drawn by the application.
+The main window starts at 1200 × 800 px when the monitor allows it, is capped at 85 % of the monitor, and is centered on startup. It is borderless and opaque: a transparent window flickers while it is resized, so its corners are square.
 
 ## Folders
 
@@ -64,7 +64,7 @@ Icons and flags are loaded with `egui::include_image!`, and fonts with `include_
 | `smooth.rs` | Turns raw brush positions into a smooth polyline (quadratic curves between midpoints, without lag). |
 | `geometry.rs` | Hit tests and the cuts made by the eraser. |
 | `render.rs` | Builds each stroke's triangles once (round joints and caps, anti-aliased edges) and draws them. |
-| `titlebar.rs` | Borderless window chrome: the floating minimize, maximize and close controls, rounded-corner helpers and resize handles. The canvas fills the whole window. |
+| `titlebar.rs` | Borderless window chrome: the floating minimize, maximize and close controls and the resize handles. The canvas fills the whole window. |
 | `model.rs` | Core data types: `Tool`, `Geometry`, `Line` (a stroke or shape) and `Brush` (current settings). |
 | `project.rs` | Reads and writes versioned `.painty` projects: compact binary format 2 with a SHA-256 checksum. Format 1 JSON projects are still read and are rewritten as format 2. |
 | `toolbar.rs` | Floating toolbar at the bottom of the window. Its cells fold in and out with animations to fit the window width; it contains the tools, brush settings, project menu and palette. |

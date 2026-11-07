@@ -3,6 +3,7 @@
 ### What's New
 
 - 🪟 The floating window controls are cleaner: a compact rounded panel with a drag grip, a separator and softer hover highlights.
+- 🐛 Fixed the toolbar glitching while the window is resized. The window is now opaque, with square corners.
 - ✨ Sharper, thinner minimize, maximize and close icons.
 
 ### 📦 Installation

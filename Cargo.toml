@@ -15,6 +15,11 @@ sha2 = "0.10"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 rfd = "0.15"
 
+# Rounded corners of the opaque window, asked from Windows (DWM).
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
+
 [build-dependencies]
 winres = "0.1"
 
