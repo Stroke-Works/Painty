@@ -3,7 +3,7 @@
 
 use eframe::egui::{
     vec2, Area, Color32, Context, CursorIcon, Id, Order, Painter, Pos2, Rect, ResizeDirection,
-    Rounding, Sense, Shape, Stroke, ViewportCommand,
+    Rounding, Sense, Stroke, ViewportCommand,
 };
 
 use crate::theme::Colors;
@@ -11,9 +11,13 @@ use crate::theme::Colors;
 /// Corner radius of the window.
 const RADIUS: f32 = 10.0;
 /// Size of the floating window-control rectangle.
-const HEIGHT: f32 = 30.0;
-const BUTTON_W: f32 = 40.0;
-const CONTROLS_ROUNDING: f32 = 7.0;
+const BUTTON_H: f32 = 26.0;
+const BUTTON_W: f32 = 34.0;
+const GRIP_W: f32 = 22.0;
+/// Inner padding of the pill around the buttons.
+const PAD: f32 = 3.0;
+const CONTROLS_ROUNDING: f32 = 10.0;
+const BUTTON_ROUNDING: f32 = 7.0;
 /// Distance between the floating controls and the window edges.
 const CONTROLS_MARGIN: f32 = 8.0;
 /// Width of the strip along each edge that starts a resize.
@@ -57,9 +61,9 @@ fn crisp(ctx: &Context, v: f32) -> f32 {
     ((v * ppp).floor() + 0.5) / ppp
 }
 
-/// Floating window controls in the top-right corner. The rest of that strip is the
-/// canvas. Dragging the move button or the rectangle moves the window, and a double
-/// click maximizes it.
+/// Floating window controls in the top-right corner: a small pill holding a drag grip and
+/// three buttons. Dragging the grip or the pill edge moves the window, and a double click
+/// maximizes it.
 pub fn show(ctx: &Context, c: &Colors) {
     let maximized = is_maximized(ctx);
     let buttons = [
@@ -68,8 +72,9 @@ pub fn show(ctx: &Context, c: &Colors) {
         WindowButton::Maximize,
         WindowButton::Close,
     ];
-    let last = buttons.len() - 1;
-    let bar_size = vec2(BUTTON_W * buttons.len() as f32, HEIGHT);
+    let width_of = |k: WindowButton| if k == WindowButton::Move { GRIP_W } else { BUTTON_W };
+    let total_w = PAD * 2.0 + buttons.iter().map(|k| width_of(*k)).sum::<f32>();
+    let bar_size = vec2(total_w, BUTTON_H + PAD * 2.0);
     let pos = Pos2::new(
         ctx.screen_rect().right() - CONTROLS_MARGIN - bar_size.x,
         ctx.screen_rect().top() + CONTROLS_MARGIN,
@@ -87,10 +92,13 @@ pub fn show(ctx: &Context, c: &Colors) {
 
             let painter = ui.painter().clone();
             painter.rect_filled(bar, CONTROLS_ROUNDING, c.surface);
+            painter.rect_stroke(bar, CONTROLS_ROUNDING, Stroke::new(1.0_f32, c.border));
 
+            let mut left = bar.left() + PAD;
             for (i, kind) in buttons.into_iter().enumerate() {
-                let left = bar.right() - BUTTON_W * (buttons.len() - i) as f32;
-                let rect = Rect::from_min_size(Pos2::new(left, bar.top()), vec2(BUTTON_W, HEIGHT));
+                let w = width_of(kind);
+                let rect = Rect::from_min_size(Pos2::new(left, bar.top() + PAD), vec2(w, BUTTON_H));
+                left += w;
                 let sense = match kind {
                     WindowButton::Move => Sense::click_and_drag(),
                     _ => Sense::click(),
@@ -100,35 +108,30 @@ pub fn show(ctx: &Context, c: &Colors) {
                 if kind == WindowButton::Move && response.hovered() {
                     ctx.set_cursor_icon(CursorIcon::Grab);
                 }
-                let (bg, fg) = match (
-                    close,
-                    response.hovered(),
-                    response.is_pointer_button_down_on(),
-                ) {
+                let hovered = response.hovered();
+                let down = response.is_pointer_button_down_on();
+                let (bg, fg) = match (close, hovered, down) {
                     (true, true, true) => (CLOSE_PRESSED, Color32::WHITE),
                     (true, true, false) => (CLOSE_HOVER, Color32::WHITE),
                     (false, true, true) => (c.active, c.text),
                     (false, true, false) => (c.hover, c.text),
+                    _ if kind == WindowButton::Move => (c.surface, c.text_dim),
                     _ => (c.surface, c.text),
                 };
-                // The outer buttons follow the rounded corners of the rectangle.
-                let rounding = if i == 0 {
-                    Rounding {
-                        nw: CONTROLS_ROUNDING,
-                        sw: CONTROLS_ROUNDING,
-                        ..Rounding::ZERO
-                    }
-                } else if i == last {
-                    Rounding {
-                        ne: CONTROLS_ROUNDING,
-                        se: CONTROLS_ROUNDING,
-                        ..Rounding::ZERO
-                    }
-                } else {
-                    Rounding::ZERO
-                };
-                painter.rect_filled(rect, rounding, bg);
+                if hovered {
+                    painter.rect_filled(rect, BUTTON_ROUNDING, bg);
+                }
                 draw_glyph(ctx, &painter, rect.center(), kind, maximized, fg, bg);
+
+                // Thin separator between the grip and the buttons.
+                if kind == WindowButton::Move {
+                    let sx = crisp(ctx, rect.right() + 2.0);
+                    painter.line_segment(
+                        [Pos2::new(sx, rect.top() + 5.0), Pos2::new(sx, rect.bottom() - 5.0)],
+                        Stroke::new(1.0_f32, c.separator),
+                    );
+                    left += 4.0;
+                }
 
                 if kind == WindowButton::Move {
                     if response.double_clicked() {
@@ -148,8 +151,6 @@ pub fn show(ctx: &Context, c: &Colors) {
                     }
                 }
             }
-
-            painter.rect_stroke(bar, CONTROLS_ROUNDING, Stroke::new(1.0_f32, c.border));
         });
 }
 
@@ -171,44 +172,35 @@ fn draw_glyph(
     color: Color32,
     bg: Color32,
 ) {
-    let stroke = Stroke::new(1.4_f32, color);
+    let stroke = Stroke::new(1.3_f32, color);
     let (x, y) = (crisp(ctx, center.x), crisp(ctx, center.y));
     let at = |dx: f32, dy: f32| Pos2::new(x + dx, y + dy);
-    let half = 4.75;
+    let half = 4.5;
     match kind {
         WindowButton::Move => {
-            // Four-direction arrow with solid heads.
-            let arm = 5.0;
-            let head = 3.0;
-            let wing = 2.2;
-            let shaft = arm - head + 0.2;
-            round_line(painter, at(-shaft, 0.0), at(shaft, 0.0), stroke);
-            round_line(painter, at(0.0, -shaft), at(0.0, shaft), stroke);
-            for (tip, a, b) in [
-                (at(-arm, 0.0), at(-arm + head, -wing), at(-arm + head, wing)),
-                (at(arm, 0.0), at(arm - head, -wing), at(arm - head, wing)),
-                (at(0.0, -arm), at(-wing, -arm + head), at(wing, -arm + head)),
-                (at(0.0, arm), at(-wing, arm - head), at(wing, arm - head)),
-            ] {
-                painter.add(Shape::convex_polygon(vec![tip, a, b], color, Stroke::NONE));
+            // Grip: two columns of three dots.
+            for dx in [-2.5_f32, 2.5] {
+                for dy in [-5.0_f32, 0.0, 5.0] {
+                    painter.circle_filled(at(dx, dy), 1.1, color);
+                }
             }
         }
         WindowButton::Minimize => {
-            round_line(painter, at(-5.0, 0.0), at(5.0, 0.0), stroke);
+            round_line(painter, at(-half, 0.0), at(half, 0.0), stroke);
         }
         WindowButton::Maximize if maximized => {
-            // Two overlapping rounded squares: the back one, then the front one.
-            let size = 8.0;
+            let size = 7.0;
             let offset = 2.0;
-            let back = Rect::from_min_size(at(-half + offset, -half), vec2(size, size));
-            painter.rect_stroke(back, 1.4, stroke);
-            let front = Rect::from_min_size(at(-half, -half + offset), vec2(size, size));
-            painter.rect_filled(front, 1.4, bg);
-            painter.rect_stroke(front, 1.4, stroke);
+            let o = (size + offset) / 2.0;
+            let back = Rect::from_min_size(at(-o + offset, -o), vec2(size, size));
+            painter.rect_stroke(back, 1.5, stroke);
+            let front = Rect::from_min_size(at(-o, -o + offset), vec2(size, size));
+            painter.rect_filled(front, 1.5, bg);
+            painter.rect_stroke(front, 1.5, stroke);
         }
         WindowButton::Maximize => {
-            let square = Rect::from_min_size(at(-half, -half), vec2(2.0 * half, 2.0 * half));
-            painter.rect_stroke(square, 1.4, stroke);
+            let square = Rect::from_center_size(at(0.0, 0.0), vec2(2.0 * half, 2.0 * half));
+            painter.rect_stroke(square, 1.5, stroke);
         }
         WindowButton::Close => {
             round_line(painter, at(-half, -half), at(half, half), stroke);
