@@ -34,6 +34,8 @@ const PAD_X: f32 = 16.0;
 const PAD_Y: f32 = 10.0;
 /// Space kept between the toolbar and the window edges.
 const EDGE: f32 = 8.0;
+/// Distance between the toolbar and the bottom of the window.
+const BOTTOM_GAP: f32 = 24.0;
 const COLOR_W: f32 = 28.0;
 const PX_W: f32 = 38.0;
 /// Two segments of 64 px plus 3 px of padding on each side.
@@ -99,8 +101,25 @@ pub fn show(
 
     let mut action = None;
 
+    // The position is computed from the size of this frame, not from the previous one
+    // as an anchor would. Otherwise the toolbar lags behind while the window is resized.
+    let ppp = ctx.pixels_per_point();
+    let snap = |v: f32| (v * ppp).round() / ppp;
+    let screen = ctx.screen_rect();
+    let size = vec2(row_w + 2.0 * PAD_X, total_h + 2.0 * PAD_Y);
+    let pos = pos2(
+        snap(screen.center().x - size.x * 0.5),
+        snap((screen.bottom() - BOTTOM_GAP - size.y).max(screen.top())),
+    );
+
     egui::Area::new(Id::new("toolbar"))
-        .anchor(Align2::CENTER_BOTTOM, vec2(0.0, -24.0))
+        .fixed_pos(pos)
+        // The position is already computed from the current screen rect. Letting egui
+        // constrain the area against the previous frame's rect makes it jump vertically
+        // while the window is resized, so the area keeps the position given above.
+        .constrain(false)
+        // No fade: a resize must never make the toolbar blink.
+        .fade_in(false)
         .show(ctx, |ui| {
             theme::apply(ui, c);
 
@@ -637,7 +656,7 @@ fn tool_name(tool: Tool) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::keep_dropdown_open;
+    use super::{keep_dropdown_open, BOTTOM_GAP};
 
     #[test]
     fn dropdown_stays_open_until_dismissed_or_an_option_is_used() {
@@ -651,5 +670,40 @@ mod tests {
     #[test]
     fn closed_dropdown_does_not_open_without_a_button_click() {
         assert!(!keep_dropdown_open(false, false, false, false, false));
+    }
+
+    #[test]
+    fn toolbar_stays_anchored_while_the_window_height_changes() {
+        use crate::model::Brush;
+        use crate::theme::{CanvasColor, Mode};
+        use eframe::egui::{self, pos2, vec2, Color32, Id, Rect};
+
+        let ctx = egui::Context::default();
+        let c = Mode::Light.colors(CanvasColor::Light);
+        let mut brush = Brush::default();
+        let mut palette = [Color32::BLACK; 6];
+        let mut time = 0.0;
+
+        // Both directions, through the minimum height, then back up.
+        for height in [800.0, 640.0, 480.0, 320.0, 480.0, 800.0] {
+            time += 1.0 / 60.0;
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(900.0, height))),
+                time: Some(time),
+                predicted_dt: 1.0 / 60.0,
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| {
+                super::show(ctx, &mut brush, &mut palette, &c);
+            });
+            let rect = ctx
+                .memory(|m| m.area_rect(Id::new("toolbar")))
+                .expect("toolbar area");
+            let gap = height - rect.bottom();
+            assert!(
+                (gap - BOTTOM_GAP).abs() < 1.0,
+                "height {height}: gap {gap}, expected {BOTTOM_GAP}"
+            );
+        }
     }
 }
