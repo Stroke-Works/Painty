@@ -3,7 +3,7 @@
 
 use eframe::egui::{
     vec2, Area, Color32, Context, CursorIcon, Id, Order, Painter, Pos2, Rect, ResizeDirection,
-    Rounding, Sense, Stroke, ViewportCommand,
+    Rounding, Sense, Shape, Stroke, ViewportCommand,
 };
 
 use crate::theme::Colors;
@@ -153,6 +153,14 @@ pub fn show(ctx: &Context, c: &Colors) {
         });
 }
 
+/// Draws a line with round caps, so small icons stay smooth at any scale.
+fn round_line(painter: &Painter, a: Pos2, b: Pos2, stroke: Stroke) {
+    painter.line_segment([a, b], stroke);
+    let radius = stroke.width * 0.5;
+    painter.circle_filled(a, radius, stroke.color);
+    painter.circle_filled(b, radius, stroke.color);
+}
+
 /// Draws the icon of a window button, centred on `center`. `bg` is what lies behind it.
 fn draw_glyph(
     ctx: &Context,
@@ -163,53 +171,48 @@ fn draw_glyph(
     color: Color32,
     bg: Color32,
 ) {
-    let stroke = Stroke::new(1.0_f32, color);
-    let half = 5.0;
-    // A square whose lines fall in the middle of pixels.
-    let square = |left: f32, top: f32| {
-        let min = Pos2::new(crisp(ctx, left), crisp(ctx, top));
-        Rect::from_min_size(min, vec2(2.0 * half, 2.0 * half))
-    };
+    let stroke = Stroke::new(1.4_f32, color);
+    let (x, y) = (crisp(ctx, center.x), crisp(ctx, center.y));
+    let at = |dx: f32, dy: f32| Pos2::new(x + dx, y + dy);
+    let half = 4.75;
     match kind {
         WindowButton::Move => {
-            // Four-direction arrow, centred on the pixel grid.
-            let (x, y) = (crisp(ctx, center.x), crisp(ctx, center.y));
-            let arm = 4.5;
-            let head = 2.0;
-            let at = |dx: f32, dy: f32| Pos2::new(x + dx, y + dy);
-            painter.line_segment([at(-arm, 0.0), at(arm, 0.0)], stroke);
-            painter.line_segment([at(0.0, -arm), at(0.0, arm)], stroke);
+            // Four-direction arrow with solid heads.
+            let arm = 5.0;
+            let head = 3.0;
+            let wing = 2.2;
+            let shaft = arm - head + 0.2;
+            round_line(painter, at(-shaft, 0.0), at(shaft, 0.0), stroke);
+            round_line(painter, at(0.0, -shaft), at(0.0, shaft), stroke);
             for (tip, a, b) in [
-                (at(-arm, 0.0), at(-arm + head, -head), at(-arm + head, head)),
-                (at(arm, 0.0), at(arm - head, -head), at(arm - head, head)),
-                (at(0.0, -arm), at(-head, -arm + head), at(head, -arm + head)),
-                (at(0.0, arm), at(-head, arm - head), at(head, arm - head)),
+                (at(-arm, 0.0), at(-arm + head, -wing), at(-arm + head, wing)),
+                (at(arm, 0.0), at(arm - head, -wing), at(arm - head, wing)),
+                (at(0.0, -arm), at(-wing, -arm + head), at(wing, -arm + head)),
+                (at(0.0, arm), at(-wing, arm - head), at(wing, arm - head)),
             ] {
-                painter.line_segment([tip, a], stroke);
-                painter.line_segment([tip, b], stroke);
+                painter.add(Shape::convex_polygon(vec![tip, a, b], color, Stroke::NONE));
             }
         }
         WindowButton::Minimize => {
-            let y = crisp(ctx, center.y);
-            painter.hline(center.x - half..=center.x + half, y, stroke);
+            round_line(painter, at(-5.0, 0.0), at(5.0, 0.0), stroke);
         }
         WindowButton::Maximize if maximized => {
-            let (x, y) = (center.x - half, center.y - half);
-            painter.rect_stroke(square(x + 2.0, y - 2.0), 0.0, stroke);
-            let front = square(x - 1.0, y + 1.0);
-            painter.rect_filled(front, 0.0, bg);
-            painter.rect_stroke(front, 0.0, stroke);
+            // Two overlapping rounded squares: the back one, then the front one.
+            let size = 8.0;
+            let offset = 2.0;
+            let back = Rect::from_min_size(at(-half + offset, -half), vec2(size, size));
+            painter.rect_stroke(back, 1.4, stroke);
+            let front = Rect::from_min_size(at(-half, -half + offset), vec2(size, size));
+            painter.rect_filled(front, 1.4, bg);
+            painter.rect_stroke(front, 1.4, stroke);
         }
         WindowButton::Maximize => {
-            painter.rect_stroke(square(center.x - half, center.y - half), 0.0, stroke);
+            let square = Rect::from_min_size(at(-half, -half), vec2(2.0 * half, 2.0 * half));
+            painter.rect_stroke(square, 1.4, stroke);
         }
         WindowButton::Close => {
-            let d = vec2(half, half);
-            painter.line_segment([center - d, center + d], stroke);
-            painter.line_segment(
-                [center + vec2(half, -half), center + vec2(-half, half)],
-                stroke,
-            );
+            round_line(painter, at(-half, -half), at(half, half), stroke);
+            round_line(painter, at(half, -half), at(-half, half), stroke);
         }
     }
 }
