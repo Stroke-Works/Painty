@@ -72,7 +72,13 @@ pub fn show(ctx: &Context, c: &Colors) {
         WindowButton::Maximize,
         WindowButton::Close,
     ];
-    let width_of = |k: WindowButton| if k == WindowButton::Move { GRIP_W } else { BUTTON_W };
+    let width_of = |k: WindowButton| {
+        if k == WindowButton::Move {
+            GRIP_W
+        } else {
+            BUTTON_W
+        }
+    };
     let total_w = PAD * 2.0 + buttons.iter().map(|k| width_of(*k)).sum::<f32>();
     let bar_size = vec2(total_w, BUTTON_H + PAD * 2.0);
     let pos = Pos2::new(
@@ -127,7 +133,10 @@ pub fn show(ctx: &Context, c: &Colors) {
                 if kind == WindowButton::Move {
                     let sx = crisp(ctx, rect.right() + 2.0);
                     painter.line_segment(
-                        [Pos2::new(sx, rect.top() + 5.0), Pos2::new(sx, rect.bottom() - 5.0)],
+                        [
+                            Pos2::new(sx, rect.top() + 5.0),
+                            Pos2::new(sx, rect.bottom() - 5.0),
+                        ],
                         Stroke::new(1.0_f32, c.separator),
                     );
                     left += 4.0;
