@@ -1,5 +1,5 @@
-//! The window frame: the floating window controls, the rounded corners, the border
-//! and the edges used to resize. The native frame is turned off, so all is drawn here.
+//! The window frame: the floating window controls, the rounded corners and the edges
+//! used to resize. The native frame is turned off, so all is drawn here.
 
 use eframe::egui::{
     vec2, Area, Color32, Context, CursorIcon, Id, Order, Painter, Pos2, Rect, ResizeDirection,
@@ -27,6 +27,7 @@ const CLOSE_PRESSED: Color32 = Color32::from_rgb(0xf1, 0x70, 0x7a);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum WindowButton {
+    Move,
     Minimize,
     Maximize,
     Close,
@@ -57,14 +58,17 @@ fn crisp(ctx: &Context, v: f32) -> f32 {
 }
 
 /// Floating window controls in the top-right corner. The rest of that strip is the
-/// canvas. Dragging the rectangle moves the window and a double click maximizes it.
+/// canvas. Dragging the move button or the rectangle moves the window, and a double
+/// click maximizes it.
 pub fn show(ctx: &Context, c: &Colors) {
     let maximized = is_maximized(ctx);
     let buttons = [
+        WindowButton::Move,
         WindowButton::Minimize,
         WindowButton::Maximize,
         WindowButton::Close,
     ];
+    let last = buttons.len() - 1;
     let bar_size = vec2(BUTTON_W * buttons.len() as f32, HEIGHT);
     let pos = Pos2::new(
         ctx.screen_rect().right() - CONTROLS_MARGIN - bar_size.x,
@@ -87,8 +91,15 @@ pub fn show(ctx: &Context, c: &Colors) {
             for (i, kind) in buttons.into_iter().enumerate() {
                 let left = bar.right() - BUTTON_W * (buttons.len() - i) as f32;
                 let rect = Rect::from_min_size(Pos2::new(left, bar.top()), vec2(BUTTON_W, HEIGHT));
-                let response = ui.interact(rect, Id::new(("window_button", i)), Sense::click());
+                let sense = match kind {
+                    WindowButton::Move => Sense::click_and_drag(),
+                    _ => Sense::click(),
+                };
+                let response = ui.interact(rect, Id::new(("window_button", i)), sense);
                 let close = kind == WindowButton::Close;
+                if kind == WindowButton::Move && response.hovered() {
+                    ctx.set_cursor_icon(CursorIcon::Grab);
+                }
                 let (bg, fg) = match (
                     close,
                     response.hovered(),
@@ -101,28 +112,40 @@ pub fn show(ctx: &Context, c: &Colors) {
                     _ => (c.surface, c.text),
                 };
                 // The outer buttons follow the rounded corners of the rectangle.
-                let rounding = match i {
-                    0 => Rounding {
+                let rounding = if i == 0 {
+                    Rounding {
                         nw: CONTROLS_ROUNDING,
                         sw: CONTROLS_ROUNDING,
                         ..Rounding::ZERO
-                    },
-                    2 => Rounding {
+                    }
+                } else if i == last {
+                    Rounding {
                         ne: CONTROLS_ROUNDING,
                         se: CONTROLS_ROUNDING,
                         ..Rounding::ZERO
-                    },
-                    _ => Rounding::ZERO,
+                    }
+                } else {
+                    Rounding::ZERO
                 };
                 painter.rect_filled(rect, rounding, bg);
                 draw_glyph(ctx, &painter, rect.center(), kind, maximized, fg, bg);
 
-                if response.clicked() {
-                    ctx.send_viewport_cmd(match kind {
-                        WindowButton::Minimize => ViewportCommand::Minimized(true),
-                        WindowButton::Maximize => ViewportCommand::Maximized(!maximized),
-                        WindowButton::Close => ViewportCommand::Close,
-                    });
+                if kind == WindowButton::Move {
+                    if response.double_clicked() {
+                        ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
+                    } else if response.drag_started() {
+                        ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+                    }
+                } else if response.clicked() {
+                    let command = match kind {
+                        WindowButton::Move => None,
+                        WindowButton::Minimize => Some(ViewportCommand::Minimized(true)),
+                        WindowButton::Maximize => Some(ViewportCommand::Maximized(!maximized)),
+                        WindowButton::Close => Some(ViewportCommand::Close),
+                    };
+                    if let Some(command) = command {
+                        ctx.send_viewport_cmd(command);
+                    }
                 }
             }
 
@@ -148,6 +171,24 @@ fn draw_glyph(
         Rect::from_min_size(min, vec2(2.0 * half, 2.0 * half))
     };
     match kind {
+        WindowButton::Move => {
+            // Four-direction arrow, centred on the pixel grid.
+            let (x, y) = (crisp(ctx, center.x), crisp(ctx, center.y));
+            let arm = 4.5;
+            let head = 2.0;
+            let at = |dx: f32, dy: f32| Pos2::new(x + dx, y + dy);
+            painter.line_segment([at(-arm, 0.0), at(arm, 0.0)], stroke);
+            painter.line_segment([at(0.0, -arm), at(0.0, arm)], stroke);
+            for (tip, a, b) in [
+                (at(-arm, 0.0), at(-arm + head, -head), at(-arm + head, head)),
+                (at(arm, 0.0), at(arm - head, -head), at(arm - head, head)),
+                (at(0.0, -arm), at(-head, -arm + head), at(head, -arm + head)),
+                (at(0.0, arm), at(-head, arm - head), at(head, arm - head)),
+            ] {
+                painter.line_segment([tip, a], stroke);
+                painter.line_segment([tip, b], stroke);
+            }
+        }
         WindowButton::Minimize => {
             let y = crisp(ctx, center.y);
             painter.hline(center.x - half..=center.x + half, y, stroke);
