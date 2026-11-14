@@ -104,6 +104,8 @@ pub struct Painty {
     release_notes_cache: CommonMarkCache,
     release_notes_text: String,
     release_notes_return: Modal,
+    /// Ongoing manual window resize, driven from the resize handles.
+    resize_drag: Option<titlebar::ResizeDrag>,
 }
 
 impl Painty {
@@ -151,6 +153,7 @@ impl Painty {
             release_notes_cache: CommonMarkCache::default(),
             release_notes_text: CURRENT_RELEASE_NOTES.to_owned(),
             release_notes_return: Modal::Settings,
+            resize_drag: None,
         };
         if let Some(path) = open_path {
             match project::load(&path) {
@@ -920,7 +923,7 @@ impl eframe::App for Painty {
         egui::Rgba::TRANSPARENT.to_array()
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.center_window(ctx);
         self.start_update_check(ctx);
         self.updater.poll(ctx);
@@ -942,7 +945,7 @@ impl eframe::App for Painty {
             )
             .show(ctx, |ui| self.canvas.show(ui, &mut self.brush, c.text_dim));
 
-        titlebar::resize_handles(ctx);
+        titlebar::resize_handles(ctx, frame, &mut self.resize_drag);
         self.show_toolbar(ctx, &c);
         self.show_settings(ctx, &c);
         self.show_release_notes(ctx, &c);
